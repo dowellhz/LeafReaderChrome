@@ -70,6 +70,18 @@ test("options loads the shared theme before settings-specific CSS", async () => 
   );
 });
 
+test("side panel scrolls its actual overflow container", async () => {
+  const source = await readFile(path.join(root, "sidepanel.js"), "utf8");
+  assert.match(
+    source,
+    /scrollThreadResponseToTop\(panel, active\.conversationId\)/,
+  );
+  assert.match(
+    source,
+    /persistThreadScroll\(thread\.documentId, panel\.scrollTop\)/,
+  );
+});
+
 test("source modules stay within the project line limit", async () => {
   const files = [
     "ai-client.js",
