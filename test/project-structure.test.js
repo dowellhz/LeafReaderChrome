@@ -82,6 +82,13 @@ test("side panel scrolls its actual overflow container", async () => {
   );
 });
 
+test("side panel listens for session payload updates via chrome.storage", async () => {
+  const source = await readFile(path.join(root, "sidepanel.js"), "utf8");
+  assert.match(source, /chrome\.storage\.onChanged\.addListener/);
+  assert.match(source, /area !== "session"/);
+  assert.doesNotMatch(source, /chrome\.storage\.session\.onChanged/);
+});
+
 test("source modules stay within the project line limit", async () => {
   const files = [
     "ai-client.js",

@@ -2,6 +2,8 @@
 
 A Manifest V3 Chrome extension inspired by Leaf Reader’s focused reading workflow.
 
+产品功能、交互约束、存储规则和验收场景见[中文需求文档](docs/REQUIREMENTS.zh-CN.md)。
+
 ## Included
 
 - Extract a current webpage into a calm reading view

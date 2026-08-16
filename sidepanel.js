@@ -315,8 +315,8 @@ async function load() {
   if (leafReaderSidePanel?.payload) await render(leafReaderSidePanel.payload);
   else await renderActivePageThread();
 }
-chrome.storage.session.onChanged.addListener((changes) => {
-  if (!changes.leafReaderSidePanel) return;
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "session" || !changes.leafReaderSidePanel) return;
   if (changes.leafReaderSidePanel.newValue?.payload)
     void render(changes.leafReaderSidePanel.newValue.payload);
   else void renderActivePageThread();
