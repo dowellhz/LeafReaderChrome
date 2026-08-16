@@ -62,6 +62,14 @@ test("classic extension pages preserve their explicit dependency order", async (
   );
 });
 
+test("options loads the shared theme before settings-specific CSS", async () => {
+  const html = await readFile(path.join(root, "options.html"), "utf8");
+  assert.ok(
+    html.indexOf('href="reader-base.css"') < html.indexOf('href="options.css"'),
+    "options must load reader-base.css before options.css",
+  );
+});
+
 test("source modules stay within the project line limit", async () => {
   const files = [
     "ai-client.js",

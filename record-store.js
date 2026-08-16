@@ -13,7 +13,11 @@ function mutateCollection(key, update) {
   }
   const task = recordQueue.then(async () => {
     const { [key]: current = [] } = await chrome.storage.local.get(key);
-    const records = structuredClone(current);
+    // Chrome storage values are already structured-cloned at the API
+    // boundary. Avoid a second clone here: older extension contexts can lack
+    // structuredClone, and a malformed legacy value should self-heal rather
+    // than make every marker action fail.
+    const records = Array.isArray(current) ? [...current] : [];
     const result = await update(records);
     await chrome.storage.local.set({ [key]: records });
     return result;
