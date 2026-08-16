@@ -83,27 +83,29 @@ async function clearLeafSidePanel(tabId, discardAnyPanel = false) {
     await chrome.storage.session.remove("leafReaderSidePanel");
 }
 
+async function collapseLeafSidePanel(tabId, discardAnyPanel = false) {
+  if (!Number.isInteger(tabId)) return;
+  await clearLeafSidePanel(tabId, discardAnyPanel);
+  // Disabling a tab-specific panel closes it for the newly loaded or
+  // activated page. The fresh content script will enable it again before the
+  // next intentional selection action.
+  await chrome.sidePanel
+    .setOptions({ tabId, enabled: false })
+    .catch(() => undefined);
+}
+
 chrome.commands.onCommand.addListener(async (command) => {
   if (command !== "open-reader") return;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await openReader(tab);
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  // Clear stale content on navigation. We deliberately keep the native panel
-  // enabled: repeatedly disabling/enabling it races Chrome's first open.
-  if (changeInfo.status === "loading" || changeInfo.url)
-    void prepareLeafSidePanel(tabId);
-  if (changeInfo.status === "loading" || changeInfo.url)
-    void clearLeafSidePanel(tabId);
+  // A navigation starts a new reading context. Collapse the old result panel
+  // once; the new content script prepares it lazily without reopening it.
+  if (changeInfo.status === "loading") void collapseLeafSidePanel(tabId);
 });
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  void prepareLeafSidePanel(tabId);
-  chrome.storage.session
-    .get("leafReaderSidePanel")
-    .then(({ leafReaderSidePanel }) => {
-      if (leafReaderSidePanel?.tabId !== tabId)
-        void clearLeafSidePanel(tabId, true);
-    });
+  void collapseLeafSidePanel(tabId, true);
 });
 const messageHandlers = {
   AI_REQUEST: (message) => requestAI(message),
@@ -150,7 +152,7 @@ const messageHandlers = {
         };
   },
   async PAGE_CHANGED(_message, sender) {
-    await clearLeafSidePanel(sender.tab?.id);
+    await collapseLeafSidePanel(sender.tab?.id);
     return { ok: true };
   },
   async ANNOTATION_SAVED(message) {

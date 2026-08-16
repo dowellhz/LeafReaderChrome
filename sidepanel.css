@@ -16,9 +16,11 @@ body {
   margin: 0;
   min-width: 300px;
   height: 100vh;
+  overflow: hidden;
 }
 main {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -292,7 +294,8 @@ textarea {
 }
 .panel-content {
   padding: 19px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   flex: 1;
   min-height: 0;

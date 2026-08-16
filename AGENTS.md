@@ -57,9 +57,9 @@ fallback strings remain English.
   `chrome.sidePanel.open({ tabId: sender.tab.id })` directly.
 - Do not change this to `windowId`: it can lose the content-script gesture in
   Chrome builds used by this project.
-- Do not repeatedly disable and enable a tab-specific panel. That previously
-  caused `No active side panel for tabId` races. Keep it enabled and only clear
-  stale session payloads on navigation.
+- On a navigation or tab switch, disable the tab-specific panel once to close
+  the stale UI. The new content script may enable it lazily before the next
+  user selection; do not cycle panel state repeatedly during one navigation.
 - Validate a tab id before calling `chrome.tabs.get()` or any tab-targeted API.
   Side-panel messages can arrive after their associated navigation is gone.
 

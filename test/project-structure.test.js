@@ -108,6 +108,16 @@ test("side panel listens for session payload updates via chrome.storage", async 
   assert.doesNotMatch(source, /chrome\.storage\.session\.onChanged/);
 });
 
+test("navigation collapses stale panels while panel content owns wheel scrolling", async () => {
+  const background = await readFile(path.join(root, "background.js"), "utf8");
+  const css = await readFile(path.join(root, "sidepanel.css"), "utf8");
+  assert.match(background, /function collapseLeafSidePanel/);
+  assert.match(background, /setOptions\(\{ tabId, enabled: false \}\)/);
+  assert.match(background, /changeInfo\.status === "loading"/);
+  assert.match(css, /main\s*\{[\s\S]*height:\s*100vh/);
+  assert.match(css, /\.panel-content\s*\{[\s\S]*overflow-y:\s*auto/);
+});
+
 test("source modules stay within the project line limit", async () => {
   const files = [
     "ai-client.js",
