@@ -69,7 +69,13 @@ function downloadConversation(payload, messages) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function followUpMarkup() {
-  return `<div class="composer"><form class="follow-up" id="followUp"><input id="followUpText" placeholder="Ask a follow-up about this text…"><button>Send</button></form><div class="conversation-tools"><button id="exportConversation">Export</button><button id="clearConversation">Clear</button></div></div>`;
+  return `<div class="composer"><form class="follow-up" id="followUp"><input id="followUpText" placeholder="Ask a follow-up about this text…"><button>Send</button></form></div>`;
+}
+function conversationToolsMarkup() {
+  return `<div class="conversation-tools"><button id="exportConversation">Export</button><button id="clearConversation">Clear</button></div>`;
+}
+function panelHeading(title, includeTools = false) {
+  return `<div class="panel-heading"><h1>${esc(title)}</h1>${includeTools ? conversationToolsMarkup() : ""}</div>`;
 }
 function bindFollowUp(payload, messages) {
   const form = document.querySelector("#followUp");
@@ -180,7 +186,7 @@ async function renderThread(payload, writePayload = true) {
     return `<article class="thread-entry" data-thread-entry="${esc(entry.conversationId)}"><div class="entry-title">${esc(entry.title || "LeafReader")}</div><div class="label">SELECTED TEXT</div><blockquote>${esc(entry.quote)}</blockquote><div class="entry-response" data-thread-response="${esc(entry.conversationId)}">${resultContent(entry, messages)}</div></article>`;
   });
   const activeMessages = conversations[active.conversationId] || [];
-  panel.innerHTML = `<div class="panel-content"><h1>${esc(thread.documentTitle || payload.documentTitle || "LeafReader")}</h1><div class="thread-list">${rendered.join("")}</div></div>${followUpMarkup()}`;
+  panel.innerHTML = `<div class="panel-content">${panelHeading(thread.documentTitle || payload.documentTitle || "LeafReader", true)}<div class="thread-list">${rendered.join("")}</div></div>${followUpMarkup()}`;
   bindFollowUp(active, activeMessages);
   const content = panel.querySelector(".panel-content");
   content?.addEventListener(
@@ -262,8 +268,9 @@ async function render(payload) {
   const messages = payload.viewOnly
     ? await loadConversation(payload)
     : await ensureInitialConversation(payload);
-  panel.innerHTML = `<div class="panel-content"><h1>${esc(payload.title || "LeafReader")}</h1>${payload.quote ? `<div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote>` : ""}${resultContent(payload, messages)}</div>${conversationKey(payload) ? followUpMarkup() : ""}`;
-  if (conversationKey(payload)) bindFollowUp(payload, messages);
+  const hasConversation = Boolean(conversationKey(payload));
+  panel.innerHTML = `<div class="panel-content">${panelHeading(payload.title || "LeafReader", hasConversation)}${payload.quote ? `<div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote>` : ""}${resultContent(payload, messages)}</div>${hasConversation ? followUpMarkup() : ""}`;
+  if (hasConversation) bindFollowUp(payload, messages);
 }
 async function renderHistory() {
   const { aiConversations: conversations } =

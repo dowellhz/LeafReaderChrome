@@ -46,6 +46,9 @@ fallback strings remain English.
    summarizing or omitting content.
 9. During a follow-up request, append the user turn and a visible spinner
    immediately; do not leave the panel silently waiting.
+10. The fixed bottom composer contains only the input and Send button. Keep
+    conversation utilities such as Export and Clear in the scrollable result
+    header instead.
 
 ## Native Side Panel rules
 

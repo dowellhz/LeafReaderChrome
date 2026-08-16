@@ -83,6 +83,15 @@ h1 {
   letter-spacing: -0.4px;
   margin: 0 0 13px;
 }
+.panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.panel-heading h1 {
+  min-width: 0;
+}
 .label {
   color: #3e7256;
   font-size: 10px;
@@ -187,12 +196,6 @@ textarea {
 .empty p {
   line-height: 1.6;
 }
-footer {
-  padding: 11px 19px;
-  border-top: 1px solid #e2e1d8;
-  font-size: 11px;
-  color: #89948a;
-}
 .chat-history {
   display: grid;
   gap: 12px;
@@ -235,7 +238,8 @@ footer {
 .conversation-tools {
   display: flex;
   gap: 10px;
-  margin-top: 9px;
+  flex: 0 0 auto;
+  margin: 0 0 13px;
 }
 .conversation-tools button {
   border: 0;
@@ -289,6 +293,7 @@ footer {
 .panel-content {
   padding: 19px;
   overflow: auto;
+  overscroll-behavior: contain;
   flex: 1;
   min-height: 0;
 }
@@ -306,9 +311,6 @@ footer {
   margin: 0;
   padding: 0;
   border: 0;
-}
-.conversation-tools {
-  margin: 5px 0 0;
 }
 .initial-answer,
 .dictionary-result {

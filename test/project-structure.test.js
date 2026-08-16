@@ -85,8 +85,20 @@ test("side panel scrolls its actual overflow container", async () => {
 
 test("side panel keeps the follow-up composer fixed at the bottom", async () => {
   const css = await readFile(path.join(root, "sidepanel.css"), "utf8");
+  const html = await readFile(path.join(root, "sidepanel.html"), "utf8");
+  const source = await readFile(path.join(root, "sidepanel.js"), "utf8");
   assert.match(css, /\.composer\s*\{[\s\S]*position:\s*sticky/);
   assert.match(css, /\.composer\s*\{[\s\S]*bottom:\s*0/);
+  assert.doesNotMatch(html, /<footer/);
+  assert.match(source, /function conversationToolsMarkup\(\)/);
+  assert.match(
+    source,
+    /function followUpMarkup\(\)\s*\{\s*return `<div class="composer"><form/,
+  );
+  assert.doesNotMatch(
+    source.match(/function followUpMarkup\(\)[\s\S]*?\n\}/)?.[0] || "",
+    /conversation-tools/,
+  );
 });
 
 test("side panel listens for session payload updates via chrome.storage", async () => {

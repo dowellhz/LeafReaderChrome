@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LeafReader Chrome",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "A focused reader with notes, vocabulary, read-aloud, and optional AI help.",
   "icons": {
     "16": "icons/leafreader-16.png",
