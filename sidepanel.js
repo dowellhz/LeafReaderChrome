@@ -88,7 +88,7 @@ function bindFollowUp(payload, messages) {
       pending.innerHTML = `<section class="chat-message user"><div class="label">YOU</div><div class="markdown"><p>${esc(question)}</p></div></section><section class="chat-message assistant"><div class="label">LEAFREADER</div>${loadingMarkup("Thinking…")}</section>`;
       const content = panel.querySelector(".panel-content");
       content?.append(pending);
-      scrollThreadToEnd(panel);
+      scrollThreadToEnd(content);
       try {
         const updated = await askFollowUp(payload, question, messages);
         await render({
@@ -129,16 +129,22 @@ function persistThreadScroll(documentId, scrollTop) {
     }, 180),
   );
 }
+function settleScroll(content, apply) {
+  if (!content) return;
+  const run = () => {
+    if (content.isConnected) apply();
+  };
+  requestAnimationFrame(run);
+  requestAnimationFrame(() => requestAnimationFrame(run));
+  setTimeout(run, 180);
+  setTimeout(run, 480);
+}
 function scrollThreadToEnd(content) {
   if (!content) return;
   const apply = () => {
     content.scrollTop = content.scrollHeight;
   };
-  // The native Side Panel assigns its final height after its document renders.
-  // Run on frames and once after layout settles, not only before overflow exists.
-  requestAnimationFrame(apply);
-  requestAnimationFrame(() => requestAnimationFrame(apply));
-  setTimeout(apply, 180);
+  settleScroll(content, apply);
 }
 function scrollThreadResponseToTop(content, conversationId) {
   if (!content || !conversationId) return scrollThreadToEnd(content);
@@ -148,15 +154,9 @@ function scrollThreadResponseToTop(content, conversationId) {
   if (!response) return scrollThreadToEnd(content);
   const apply = () => {
     if (!content.isConnected || !response.isConnected) return;
-    const distance =
-      response.getBoundingClientRect().top -
-      content.getBoundingClientRect().top -
-      19;
-    content.scrollTop = Math.max(0, content.scrollTop + distance);
+    response.scrollIntoView({ block: "start", inline: "nearest" });
   };
-  requestAnimationFrame(apply);
-  requestAnimationFrame(() => requestAnimationFrame(apply));
-  setTimeout(apply, 180);
+  settleScroll(content, apply);
 }
 async function renderThread(payload, writePayload = true) {
   const thread = writePayload
@@ -176,16 +176,17 @@ async function renderThread(payload, writePayload = true) {
   const activeMessages = conversations[active.conversationId] || [];
   panel.innerHTML = `<div class="panel-content"><h1>${esc(thread.documentTitle || payload.documentTitle || "LeafReader")}</h1><div class="thread-list">${rendered.join("")}</div></div>${followUpMarkup()}`;
   bindFollowUp(active, activeMessages);
-  panel.addEventListener(
+  const content = panel.querySelector(".panel-content");
+  content?.addEventListener(
     "scroll",
-    () => persistThreadScroll(thread.documentId, panel.scrollTop),
+    () => persistThreadScroll(thread.documentId, content.scrollTop),
     { passive: true },
   );
   if (writePayload || payload.restoreThread)
-    scrollThreadResponseToTop(panel, active.conversationId);
+    scrollThreadResponseToTop(content, active.conversationId);
   else
     requestAnimationFrame(() => {
-      panel.scrollTop = thread.scrollTop || 0;
+      if (content) content.scrollTop = thread.scrollTop || 0;
     });
   return true;
 }

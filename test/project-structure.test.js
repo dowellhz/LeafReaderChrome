@@ -74,12 +74,13 @@ test("side panel scrolls its actual overflow container", async () => {
   const source = await readFile(path.join(root, "sidepanel.js"), "utf8");
   assert.match(
     source,
-    /scrollThreadResponseToTop\(panel, active\.conversationId\)/,
+    /scrollThreadResponseToTop\(content, active\.conversationId\)/,
   );
   assert.match(
     source,
-    /persistThreadScroll\(thread\.documentId, panel\.scrollTop\)/,
+    /persistThreadScroll\(thread\.documentId, content\.scrollTop\)/,
   );
+  assert.match(source, /response\.scrollIntoView/);
 });
 
 test("side panel listens for session payload updates via chrome.storage", async () => {

@@ -400,6 +400,9 @@ footer {
     Georgia,
     serif;
 }
+.entry-response {
+  scroll-margin-top: 14px;
+}
 .thread-entry blockquote {
   margin-bottom: 11px;
 }
