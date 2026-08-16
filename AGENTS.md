@@ -128,6 +128,10 @@ temporary profile after the test.
 
 ## Change discipline
 
+- **No source file may exceed 500 lines.** Before adding code that would cross
+  this limit, split responsibilities into focused modules/files and update the
+  manifest or HTML script references accordingly. Do not evade the limit by
+  minifying source into long physical lines.
 - Bump `manifest.json` patch version for any user-visible extension change.
 - Maintain the LeafReader icon files in `icons/` and keep manifest icon paths
   valid for 16, 32, 48, and 128 pixels.

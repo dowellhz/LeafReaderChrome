@@ -1,1 +1,10 @@
-{}
+{
+  "name": "leafreaderchrome",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check background.js && node --check ai-client.js && node --check content-core.js && node --check content-storage.js && node --check content-actions.js && node --check content-markers.js && node --check panel-store.js && node --check panel-markdown.js && node --check sidepanel.js && node --check reader-core.js && node --check reader-library.js && node --check reader-document.js && node --check reader-selection.js && node --check reader-tts.js && node --check reader.js && node --check options.js && node --check popup.js",
+    "test": "node --test"
+  }
+}

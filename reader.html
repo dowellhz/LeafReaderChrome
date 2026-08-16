@@ -1,28 +1,238 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LeafReader Chrome</title><link rel="stylesheet" href="reader.css"></head><body>
-<div id="app">
-  <aside class="sidebar">
-    <div class="logo"><span class="logo-mark">◒</span><span>LeafReader</span></div>
-    <button class="new-read leaf-button" id="openPage">＋ Read current page</button>
-    <nav><button class="nav active" data-view="library">▦ <span>Library</span></button><button class="nav" data-view="notes">▤ <span>Notes</span></button><button class="nav" data-view="words">◎ <span>Vocabulary</span></button></nav>
-    <div class="sidebar-bottom"><button class="nav" id="settings">⚙ <span>Settings</span></button><p id="libraryCount"></p></div>
-  </aside>
-  <main class="workspace">
-    <section id="libraryView" class="view active">
-      <header class="library-header"><div><p class="eyebrow">YOUR READING SPACE</p><h1>Library</h1><p class="muted">Save webpages to continue where you left off.</p></div><div class="header-actions"><button class="leaf-button" id="openPage2">Read this page</button></div></header>
-      <div class="library-tools"><input id="librarySearch" type="search" placeholder="Search your library"><select id="sortDocuments"><option value="recent">Recently opened</option><option value="title">Title A–Z</option><option value="progress">Reading progress</option></select></div>
-      <div id="documentGrid" class="document-grid"></div><div id="emptyLibrary" class="empty"><div class="leaf-illustration">☘</div><h2>Your library is quiet for now</h2><p>Open an article from the LeafReader toolbar to save it for later.</p><button class="leaf-button" id="emptyOpen">Open current page</button></div>
-    </section>
-    <section id="notesView" class="view"><header class="simple-header"><div><p class="eyebrow">ANNOTATIONS</p><h1>Notes</h1><p class="muted">Every highlight and thought, organized by reading.</p></div><div class="header-actions"><button class="import-button small" id="exportNotesMarkdown">Export Markdown</button><button class="import-button small" id="exportNotesJson">Export JSON</button></div></header><div id="notesList" class="record-list"></div></section>
-    <section id="wordsView" class="view"><header class="simple-header"><div><p class="eyebrow">PERSONAL DICTIONARY</p><h1>Vocabulary</h1><p class="muted">Words you saved while reading.</p></div><div class="header-actions"><button class="leaf-button" id="reviewDue">Review due</button><button class="import-button small" id="exportWordsJson">Export JSON</button></div></header><div id="wordsList" class="record-list"></div></section>
-    <section id="readerView" class="view reader-view">
-      <header class="reader-header"><button class="icon-button" id="backLibrary" title="Back to library">←</button><div class="reader-identity"><strong id="readerTitle"></strong><span id="readerMeta"></span></div><div class="reader-actions"><button class="icon-button" id="aiSummary" title="Summarize with AI">✦</button><button class="icon-button" id="searchToggle" title="Search in document">⌕</button><button class="icon-button" id="ttsToggle" title="Read aloud">♬</button><button class="icon-button" id="themeToggle" title="Theme">◐</button><button class="icon-button" id="readerSettings" title="Reading settings">Aa</button></div></header>
-      <div id="searchBar" class="search-bar" hidden><input id="inDocumentSearch" placeholder="Find in document"><span id="searchCount"></span><button id="previousMatch">↑</button><button id="nextMatch">↓</button><button id="closeSearch">×</button></div>
-      <div id="readingSettings" class="reading-settings" hidden><label>Text size <input id="fontSize" type="range" min="15" max="26" value="18"></label><label>Text width <input id="textWidth" type="range" min="560" max="940" value="720"></label><label>Line height <input id="lineHeight" type="range" min="1.45" max="2.2" step=".05" value="1.8"></label><label>Voice <select id="ttsVoice"></select></label><label>Speech rate <input id="ttsRate" type="range" min=".7" max="1.5" step=".1" value="1"></label></div>
-      <div class="progress-track"><i id="progressBar"></i></div>
-      <article id="article" class="article"></article>
-      <div id="selectionToolbar" class="selection-toolbar" hidden><button data-action="highlight" title="Highlight">▰</button><button data-action="note" title="Add note">✎</button><button data-action="word" title="Save word">◎</button><button data-action="translate" title="Translate">文</button><button data-action="explain" title="Explain with AI">✦</button><button data-action="speak" title="Read aloud">♬</button></div>
-      <section id="assistantPanel" class="assistant-panel" hidden><header><strong id="assistantTitle">LeafReader</strong><button id="closeAssistant">×</button></header><div id="assistantResult"></div><form id="followUpForm"><input id="followUp" placeholder="Ask about this reading…"><button>Send</button></form></section>
-    </section>
-  </main>
-</div><dialog id="noteDialog"><form method="dialog"><h2>Add a note</h2><blockquote id="noteQuote"></blockquote><textarea id="noteText" placeholder="What do you want to remember?"></textarea><menu><button value="cancel">Cancel</button><button value="save" class="leaf-button">Save note</button></menu></form></dialog>
-<script src="reader.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>LeafReader Chrome</title>
+    <link rel="stylesheet" href="reader-base.css" />
+    <link rel="stylesheet" href="reader-library.css" />
+    <link rel="stylesheet" href="reader.css" />
+  </head>
+  <body>
+    <div id="app">
+      <aside class="sidebar">
+        <div class="logo">
+          <span class="logo-mark">◒</span><span>LeafReader</span>
+        </div>
+        <button class="new-read leaf-button" id="openPage">
+          ＋ Read current page
+        </button>
+        <nav>
+          <button class="nav active" data-view="library">
+            ▦ <span>Library</span></button
+          ><button class="nav" data-view="notes">▤ <span>Notes</span></button
+          ><button class="nav" data-view="words">
+            ◎ <span>Vocabulary</span>
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <button class="nav" id="settings">⚙ <span>Settings</span></button>
+          <p id="libraryCount"></p>
+        </div>
+      </aside>
+      <main class="workspace">
+        <section id="libraryView" class="view active">
+          <header class="library-header">
+            <div>
+              <p class="eyebrow">YOUR READING SPACE</p>
+              <h1>Library</h1>
+              <p class="muted">Save webpages to continue where you left off.</p>
+            </div>
+            <div class="header-actions">
+              <button class="leaf-button" id="openPage2">Read this page</button>
+            </div>
+          </header>
+          <div class="library-tools">
+            <input
+              id="librarySearch"
+              type="search"
+              placeholder="Search your library"
+            /><select id="sortDocuments">
+              <option value="recent">Recently opened</option>
+              <option value="title">Title A–Z</option>
+              <option value="progress">Reading progress</option>
+            </select>
+          </div>
+          <div id="documentGrid" class="document-grid"></div>
+          <div id="emptyLibrary" class="empty">
+            <div class="leaf-illustration">☘</div>
+            <h2>Your library is quiet for now</h2>
+            <p>
+              Open an article from the LeafReader toolbar to save it for later.
+            </p>
+            <button class="leaf-button" id="emptyOpen">
+              Open current page
+            </button>
+          </div>
+        </section>
+        <section id="notesView" class="view">
+          <header class="simple-header">
+            <div>
+              <p class="eyebrow">ANNOTATIONS</p>
+              <h1>Notes</h1>
+              <p class="muted">
+                Every highlight and thought, organized by reading.
+              </p>
+            </div>
+            <div class="header-actions">
+              <button class="import-button small" id="exportNotesMarkdown">
+                Export Markdown</button
+              ><button class="import-button small" id="exportNotesJson">
+                Export JSON
+              </button>
+            </div>
+          </header>
+          <div id="notesList" class="record-list"></div>
+        </section>
+        <section id="wordsView" class="view">
+          <header class="simple-header">
+            <div>
+              <p class="eyebrow">PERSONAL DICTIONARY</p>
+              <h1>Vocabulary</h1>
+              <p class="muted">Words you saved while reading.</p>
+            </div>
+            <div class="header-actions">
+              <button class="leaf-button" id="reviewDue">Review due</button
+              ><button class="import-button small" id="exportWordsJson">
+                Export JSON
+              </button>
+            </div>
+          </header>
+          <div id="wordsList" class="record-list"></div>
+        </section>
+        <section id="readerView" class="view reader-view">
+          <header class="reader-header">
+            <button
+              class="icon-button"
+              id="backLibrary"
+              title="Back to library"
+            >
+              ←
+            </button>
+            <div class="reader-identity">
+              <strong id="readerTitle"></strong><span id="readerMeta"></span>
+            </div>
+            <div class="reader-actions">
+              <button
+                class="icon-button"
+                id="aiSummary"
+                title="Summarize with AI"
+              >
+                ✦</button
+              ><button
+                class="icon-button"
+                id="searchToggle"
+                title="Search in document"
+              >
+                ⌕</button
+              ><button class="icon-button" id="ttsToggle" title="Read aloud">
+                ♬</button
+              ><button class="icon-button" id="themeToggle" title="Theme">
+                ◐</button
+              ><button
+                class="icon-button"
+                id="readerSettings"
+                title="Reading settings"
+              >
+                Aa
+              </button>
+            </div>
+          </header>
+          <div id="searchBar" class="search-bar" hidden>
+            <input id="inDocumentSearch" placeholder="Find in document" /><span
+              id="searchCount"
+            ></span
+            ><button id="previousMatch">↑</button
+            ><button id="nextMatch">↓</button
+            ><button id="closeSearch">×</button>
+          </div>
+          <div id="readingSettings" class="reading-settings" hidden>
+            <label
+              >Text size
+              <input
+                id="fontSize"
+                type="range"
+                min="15"
+                max="26"
+                value="18" /></label
+            ><label
+              >Text width
+              <input
+                id="textWidth"
+                type="range"
+                min="560"
+                max="940"
+                value="720" /></label
+            ><label
+              >Line height
+              <input
+                id="lineHeight"
+                type="range"
+                min="1.45"
+                max="2.2"
+                step=".05"
+                value="1.8" /></label
+            ><label
+              >Voice
+              <select id="ttsVoice"></select></label
+            ><label
+              >Speech rate
+              <input
+                id="ttsRate"
+                type="range"
+                min=".7"
+                max="1.5"
+                step=".1"
+                value="1"
+            /></label>
+          </div>
+          <div class="progress-track"><i id="progressBar"></i></div>
+          <article id="article" class="article"></article>
+          <div id="selectionToolbar" class="selection-toolbar" hidden>
+            <button data-action="highlight" title="Highlight">▰</button
+            ><button data-action="note" title="Add note">✎</button
+            ><button data-action="word" title="Save word">◎</button
+            ><button data-action="translate" title="Translate">文</button
+            ><button data-action="explain" title="Explain with AI">✦</button
+            ><button data-action="speak" title="Read aloud">♬</button>
+          </div>
+          <section id="assistantPanel" class="assistant-panel" hidden>
+            <header>
+              <strong id="assistantTitle">LeafReader</strong
+              ><button id="closeAssistant">×</button>
+            </header>
+            <div id="assistantResult"></div>
+            <form id="followUpForm">
+              <input
+                id="followUp"
+                placeholder="Ask about this reading…"
+              /><button>Send</button>
+            </form>
+          </section>
+        </section>
+      </main>
+    </div>
+    <dialog id="noteDialog">
+      <form method="dialog">
+        <h2>Add a note</h2>
+        <blockquote id="noteQuote"></blockquote>
+        <textarea
+          id="noteText"
+          placeholder="What do you want to remember?"
+        ></textarea>
+        <menu>
+          <button value="cancel">Cancel</button
+          ><button value="save" class="leaf-button">Save note</button>
+        </menu>
+      </form>
+    </dialog>
+    <script src="panel-markdown.js"></script>
+    <script src="library-store.js"></script>
+    <script src="reader-core.js"></script>
+    <script src="reader-library.js"></script>
+    <script src="reader-document.js"></script>
+    <script src="reader-selection.js"></script>
+    <script src="reader-tts.js"></script>
+    <script src="reader.js"></script>
+  </body>
+</html>

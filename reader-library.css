@@ -1,0 +1,250 @@
+}
+.empty p {
+  line-height: 1.6;
+  margin: 0 0 21px;
+}
+.leaf-illustration {
+  font-size: 55px;
+  color: var(--green);
+}
+.record-list {
+  max-width: 850px;
+  margin: 0 auto;
+}
+.record {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 17px 19px;
+  margin: 12px 0;
+}
+.record blockquote {
+  font-family: var(--serif);
+  font-size: 17px;
+  margin: 0 0 10px;
+  border-left: 3px solid var(--gold);
+  padding-left: 12px;
+}
+.record p {
+  margin: 5px 0;
+  color: #43534a;
+}
+.record small {
+  color: var(--muted);
+}
+.record button {
+  float: right;
+  border: 0;
+  background: transparent;
+  color: var(--green);
+}
+.reader-view {
+  padding: 0;
+  background: var(--paper);
+}
+.reader-header {
+  height: 64px;
+  position: sticky;
+  top: 0;
+  background: color-mix(in srgb, var(--paper) 93%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  padding: 0 25px;
+  z-index: 9;
+}
+.icon-button {
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 18px;
+  color: #536259;
+}
+.icon-button:hover {
+  background: var(--green-soft);
+  color: var(--green);
+}
+.reader-identity {
+  margin-left: 12px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.reader-identity strong {
+  font-family: var(--serif);
+  max-width: 500px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader-identity span {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.reader-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.progress-track {
+  position: sticky;
+  top: 64px;
+  height: 3px;
+  background: transparent;
+  z-index: 10;
+}
+.progress-track i {
+  display: block;
+  background: var(--green);
+  height: 100%;
+  width: 0;
+}
+.article {
+  --text-size: 18px;
+  --text-width: 720px;
+  --leading: 1.8;
+  max-width: var(--text-width);
+  margin: 52px auto 160px;
+  padding: 0 26px;
+  font-family: var(--serif);
+  font-size: var(--text-size);
+  line-height: var(--leading);
+  color: #28342e;
+  overflow-wrap: break-word;
+}
+.article h1,
+.article h2,
+.article h3 {
+  font-family: var(--serif);
+  line-height: 1.2;
+  margin: 1.8em 0 0.55em;
+}
+.article h1 {
+  font-size: 2.15em;
+}
+.article h2 {
+  font-size: 1.55em;
+}
+.article p,
+.article li {
+  margin: 0 0 1.1em;
+}
+.article a {
+  color: var(--green);
+}
+.article img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+  margin: 1.5em auto;
+}
+.article blockquote {
+  border-left: 3px solid #b8c8b5;
+  padding-left: 1em;
+  color: #4a5a51;
+  margin: 1.2em 0;
+}
+.article pre {
+  overflow: auto;
+  background: #ebe9e1;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 0.8em;
+}
+.article mark.leaf-highlight {
+  background: var(--note);
+  padding: 0 0.04em;
+  border-radius: 2px;
+}
+.article .leaf-translation {
+  background: #cfe9ff;
+  padding: 0 0.04em;
+  border-radius: 2px;
+}
+.article .leaf-dictionary {
+  background: #e7dcff;
+  padding: 0 0.04em;
+  border-radius: 2px;
+}
+.article .leaf-explanation {
+  background: #d8f0db;
+  padding: 0 0.04em;
+  border-radius: 2px;
+}
+.article .leaf-word {
+  background: linear-gradient(transparent 75%, #b9dcc3 0);
+  cursor: pointer;
+}
+.article .leaf-note {
+  background: linear-gradient(transparent 75%, #f2d57e 0);
+  cursor: pointer;
+}
+.search-bar {
+  position: fixed;
+  z-index: 15;
+  top: 76px;
+  right: 30px;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 7px 28px #0002;
+  border-radius: 9px;
+  padding: 7px;
+  display: flex;
+  gap: 4px;
+}
+.search-bar input {
+  border: 0;
+  outline: 0;
+  width: 210px;
+  padding: 5px;
+}
+.search-bar button {
+  border: 0;
+  background: #eef0e8;
+  border-radius: 5px;
+}
+.search-hit {
+  background: #f1d976;
+}
+.search-hit.current {
+  outline: 2px solid var(--green);
+}
+.reading-settings {
+  position: fixed;
+  z-index: 15;
+  top: 76px;
+  right: 30px;
+  width: 250px;
+  padding: 16px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  box-shadow: 0 7px 28px #0002;
+}
+.reading-settings label {
+  display: block;
+  font-size: 12px;
+  margin: 7px 0 14px;
+}
+.reading-settings input {
+  display: block;
+  width: 100%;
+  accent-color: var(--green);
+}
+.selection-toolbar {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  background: #293a31;
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: 0 6px 20px #0004;
+}
+.selection-toolbar button {
+  border: 0;
+  background: transparent;
+  color: #fff;

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LeafReader Chrome",
-  "version": "1.0.40",
+  "version": "0.1.0",
   "description": "A focused reader with notes, vocabulary, read-aloud, and optional AI help.",
   "icons": {
     "16": "icons/leafreader-16.png",
@@ -23,12 +23,20 @@
   },
   "side_panel": { "default_path": "sidepanel.html" },
   "options_page": "options.html",
-  "content_scripts": [{
-    "matches": ["http://*/*", "https://*/*"],
-    "css": ["content.css"],
-    "js": ["content.js"],
-    "run_at": "document_end"
-  }],
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "css": ["content.css"],
+      "js": [
+        "content-core.js",
+        "content-storage.js",
+        "content-actions.js",
+        "content-markers.js",
+        "content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
   "commands": {
     "open-reader": {
       "suggested_key": { "default": "Alt+Shift+R", "mac": "MacCtrl+Shift+R" },
