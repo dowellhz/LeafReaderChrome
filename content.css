@@ -1,0 +1,8 @@
+/* Registered by manifest.json, so page scripts cannot remove LeafReader's
+   original-page markers when an SPA re-renders its document. */
+::highlight(leafreader-page-highlight) { background: #fff09b; color: inherit; }
+::highlight(leafreader-page-note) { background: #f3d77f; color: inherit; }
+::highlight(leafreader-page-word) { background: transparent; color: inherit; text-decoration: underline 2px #8fc49c; text-underline-offset: 3px; }
+::highlight(leafreader-page-translation) { background: #cfe9ff; color: inherit; }
+::highlight(leafreader-page-dictionary) { background: #e7dcff; color: inherit; }
+::highlight(leafreader-page-explanation) { background: #d8f0db; color: inherit; }
