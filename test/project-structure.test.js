@@ -45,6 +45,7 @@ test("classic extension pages preserve their explicit dependency order", async (
     "sidepanel.html": [
       "panel-store.js",
       "panel-markdown.js",
+      "panel-payload.js",
       "sidepanel.js",
     ],
   };
@@ -74,6 +75,7 @@ test("source modules stay within the project line limit", async () => {
     "content-storage.js",
     "library-store.js",
     "panel-markdown.js",
+    "panel-payload.js",
     "panel-store.js",
     "popup.js",
     "sidepanel.js",

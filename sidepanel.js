@@ -1,5 +1,6 @@
 const panel = document.querySelector("#panel");
 const { esc, markdown } = window.LeafReaderMarkdown;
+const { isThreadPayload } = window.LeafReaderPanelPayload;
 const {
   appendFollowUp,
   clearConversation,
