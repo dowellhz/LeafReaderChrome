@@ -58,7 +58,7 @@ function renderNotes() {
         annotations = annotations.filter(
           (note) => note.id !== button.dataset.deleteNote,
         );
-        await persistRecords();
+        await removeStoredRecord("annotations", button.dataset.deleteNote);
         renderNotes();
       }),
   );
@@ -135,7 +135,7 @@ function renderWords() {
         vocabulary = vocabulary.filter(
           (word) => word.id !== button.dataset.deleteWord,
         );
-        await persistRecords();
+        await removeStoredRecord("vocabulary", button.dataset.deleteWord);
         renderWords();
       }),
   );

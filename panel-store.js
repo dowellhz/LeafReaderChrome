@@ -1,28 +1,70 @@
-/* URL-scoped Side Panel data. All read-modify-write storage changes are
- * serialized so a scroll update cannot overwrite a newly completed answer. */
+/* URL-scoped panel data is stored one conversation/thread per Chrome storage
+ * key. This keeps large reading trails from rewriting one global object. */
 (() => {
-  let writeQueue = Promise.resolve();
-  const conversationsKey = "aiConversations";
-  const threadsKey = "sidePanelThreads";
+  const prefix = "leafreader:panel:";
+  const conversationPrefix = `${prefix}conversation:`;
+  const threadPrefix = `${prefix}thread:`;
+  const migrationKey = `${prefix}migration-v2`;
+  const queues = new Map();
+  let migration;
 
   const conversationKey = (payload) =>
     payload?.conversationId ? `conversation:${payload.conversationId}` : "";
   const threadKey = (documentId) => (documentId ? `thread:${documentId}` : "");
+  const conversationStorageKey = (payload) =>
+    `${conversationPrefix}${payload.conversationId}`;
+  const threadStorageKey = (documentId) =>
+    `${threadPrefix}${encodeURIComponent(documentId)}`;
   const pending = (value) =>
     /^(?:thinking|loading|正在|处理中|请求中|请稍候)/i.test(
       String(value || "").trim(),
     );
 
-  function mutate(storageKey, update) {
-    const task = writeQueue.then(async () => {
-      const stored = await chrome.storage.local.get(storageKey);
-      const value = structuredClone(stored[storageKey] || {});
+  function mutate(key, update) {
+    const previous = queues.get(key) || Promise.resolve();
+    const task = previous.then(async () => {
+      const { [key]: stored } = await chrome.storage.local.get(key);
+      const value = structuredClone(stored || {});
       const result = await update(value);
-      await chrome.storage.local.set({ [storageKey]: value });
+      await chrome.storage.local.set({ [key]: value });
       return result;
     });
-    writeQueue = task.catch(() => {});
+    queues.set(
+      key,
+      task.catch(() => undefined),
+    );
     return task;
+  }
+
+  async function migrate() {
+    if (migration) return migration;
+    migration = (async () => {
+      const {
+        [migrationKey]: migrated,
+        aiConversations = {},
+        sidePanelThreads = {},
+      } = await chrome.storage.local.get([
+        migrationKey,
+        "aiConversations",
+        "sidePanelThreads",
+      ]);
+      if (migrated) return;
+      const next = { [migrationKey]: Date.now() };
+      Object.entries(aiConversations).forEach(([key, value]) => {
+        const id = key.replace(/^conversation:/, "");
+        next[`${conversationPrefix}${id}`] = value;
+      });
+      Object.entries(sidePanelThreads).forEach(([key, value]) => {
+        const id = key.replace(/^thread:/, "");
+        next[threadStorageKey(id)] = value;
+      });
+      await chrome.storage.local.set(next);
+      await chrome.storage.local.remove([
+        "aiConversations",
+        "sidePanelThreads",
+      ]);
+    })();
+    return migration;
   }
 
   function messageRecord(payload, messages) {
@@ -38,19 +80,35 @@
   }
 
   async function loadConversation(payload) {
-    const key = conversationKey(payload);
-    if (!key || payload.conversationCleared) return [];
-    const { [conversationsKey]: conversations = {} } =
-      await chrome.storage.local.get(conversationsKey);
-    return conversations[key]?.messages || [];
+    if (!payload?.conversationId || payload.conversationCleared) return [];
+    await migrate();
+    const key = conversationStorageKey(payload);
+    const { [key]: conversation } = await chrome.storage.local.get(key);
+    return conversation?.messages || [];
   }
 
-  function ensureInitialConversation(payload) {
-    const key = conversationKey(payload);
-    if (!key || !payload.body || pending(payload.body))
+  async function loadConversationMap(entries) {
+    await migrate();
+    const keys = [
+      ...new Set(entries.map((entry) => entry.conversationId).filter(Boolean)),
+    ].map((id) => `${conversationPrefix}${id}`);
+    const stored = keys.length ? await chrome.storage.local.get(keys) : {};
+    return Object.fromEntries(
+      entries.map((entry) => [
+        entry.conversationId,
+        stored[`${conversationPrefix}${entry.conversationId}`]?.messages || [],
+      ]),
+    );
+  }
+
+  async function ensureInitialConversation(payload) {
+    if (!payload?.conversationId || !payload.body || pending(payload.body)) {
       return loadConversation(payload);
-    return mutate(conversationsKey, (conversations) => {
-      const existing = conversations[key]?.messages || [];
+    }
+    await migrate();
+    const key = conversationStorageKey(payload);
+    return mutate(key, (conversation) => {
+      const existing = conversation.messages || [];
       const stalePending =
         existing.length === 2 &&
         existing[0]?.role === "user" &&
@@ -66,70 +124,51 @@
             { role: "user", content: payload.quote || "Selected webpage text" },
             { role: "assistant", content: payload.body },
           ];
-      conversations[key] = messageRecord(payload, messages);
+      Object.assign(conversation, messageRecord(payload, messages));
       return messages;
     });
   }
 
-  function appendFollowUp(payload, question, answer) {
-    const key = conversationKey(payload);
-    if (!key) return Promise.resolve([]);
-    return mutate(conversationsKey, (conversations) => {
-      const history = conversations[key]?.messages || [];
+  async function appendFollowUp(payload, question, answer) {
+    if (!payload?.conversationId) return [];
+    await migrate();
+    const key = conversationStorageKey(payload);
+    return mutate(key, (conversation) => {
       const messages = [
-        ...history,
+        ...(conversation.messages || []),
         { role: "user", content: question },
         { role: "assistant", content: answer },
       ];
-      conversations[key] = messageRecord(payload, messages);
+      Object.assign(conversation, messageRecord(payload, messages));
       return messages;
     });
   }
 
-  function clearConversation(payload) {
-    const key = conversationKey(payload);
-    if (!key) return Promise.resolve();
-    return mutate(conversationsKey, (conversations) => {
-      delete conversations[key];
-    });
-  }
-
-  async function allConversations() {
-    const { [conversationsKey]: conversations = {} } =
-      await chrome.storage.local.get(conversationsKey);
-    return conversations;
+  async function clearConversation(payload) {
+    if (!payload?.conversationId) return;
+    await migrate();
+    await chrome.storage.local.remove(conversationStorageKey(payload));
   }
 
   async function readThread(documentId) {
-    const key = threadKey(documentId);
-    if (!key) return null;
-    const { [threadsKey]: threads = {} } =
-      await chrome.storage.local.get(threadsKey);
-    return threads[key] || null;
+    if (!documentId) return null;
+    await migrate();
+    const key = threadStorageKey(documentId);
+    return (await chrome.storage.local.get(key))[key] || null;
   }
 
-  function upsertThread(payload) {
-    const key = threadKey(payload.documentId);
-    if (!key) return Promise.resolve(null);
-    return mutate(threadsKey, (threads) => {
-      const thread = threads[key] || {
+  async function upsertThread(payload) {
+    if (!payload?.documentId) return null;
+    await migrate();
+    const key = threadStorageKey(payload.documentId);
+    return mutate(key, (thread) => {
+      Object.assign(thread, {
         documentId: payload.documentId,
-        documentTitle: payload.documentTitle,
-        entries: [],
-        scrollTop: 0,
-        updatedAt: 0,
-      };
-      const entry = {
-        conversationId: payload.conversationId,
-        title: payload.title,
-        body: payload.body,
-        quote: payload.quote,
-        context: payload.context,
-        documentId: payload.documentId,
-        documentTitle: payload.documentTitle,
-        presentation: payload.presentation || "chat",
-        updatedAt: Date.now(),
-      };
+        documentTitle: payload.documentTitle || thread.documentTitle,
+        entries: thread.entries || [],
+        scrollTop: thread.scrollTop || 0,
+      });
+      const entry = { ...payload, updatedAt: Date.now() };
       const index = thread.entries.findIndex(
         (item) => item.conversationId === entry.conversationId,
       );
@@ -137,30 +176,69 @@
         thread.entries[index] = { ...thread.entries[index], ...entry };
       else thread.entries.push(entry);
       thread.entries = thread.entries.slice(-50);
-      thread.documentTitle = payload.documentTitle || thread.documentTitle;
       thread.updatedAt = Date.now();
-      threads[key] = thread;
       return thread;
     });
   }
 
-  function saveThreadScroll(documentId, scrollTop) {
-    const key = threadKey(documentId);
-    if (!key) return Promise.resolve();
-    return mutate(threadsKey, (threads) => {
-      if (threads[key]) threads[key].scrollTop = scrollTop;
+  async function saveThreadScroll(documentId, scrollTop) {
+    if (!documentId) return;
+    await migrate();
+    const key = threadStorageKey(documentId);
+    await mutate(key, (thread) => {
+      if (thread.documentId) thread.scrollTop = scrollTop;
     });
   }
 
+  async function exportData() {
+    await migrate();
+    const stored = await chrome.storage.local.get(null);
+    const aiConversations = {};
+    const sidePanelThreads = {};
+    Object.entries(stored).forEach(([key, value]) => {
+      if (key.startsWith(conversationPrefix)) {
+        aiConversations[
+          `conversation:${key.slice(conversationPrefix.length)}`
+        ] = value;
+      }
+      if (key.startsWith(threadPrefix)) {
+        const id = decodeURIComponent(key.slice(threadPrefix.length));
+        sidePanelThreads[`thread:${id}`] = value;
+      }
+    });
+    return { aiConversations, sidePanelThreads };
+  }
+
+  async function replaceData(data) {
+    await migrate();
+    const stored = await chrome.storage.local.get(null);
+    const existing = Object.keys(stored).filter((key) =>
+      key.startsWith(prefix),
+    );
+    if (existing.length) await chrome.storage.local.remove(existing);
+    const next = { [migrationKey]: Date.now() };
+    Object.entries(data.aiConversations || {}).forEach(([key, value]) => {
+      next[`${conversationPrefix}${key.replace(/^conversation:/, "")}`] = value;
+    });
+    Object.entries(data.sidePanelThreads || {}).forEach(([key, value]) => {
+      const id = key.replace(/^thread:/, "");
+      next[threadStorageKey(id)] = value;
+    });
+    await chrome.storage.local.set(next);
+  }
+
   window.LeafReaderPanelStore = {
-    allConversations,
     appendFollowUp,
     clearConversation,
     conversationKey,
     ensureInitialConversation,
+    exportData,
     loadConversation,
+    loadConversationMap,
+    migrate,
     pending,
     readThread,
+    replaceData,
     saveThreadScroll,
     threadKey,
     upsertThread,

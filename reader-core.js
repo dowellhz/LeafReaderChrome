@@ -131,7 +131,7 @@ async function loadState() {
       vocabularyMigrated = true;
     }
   });
-  if (vocabularyMigrated) await chrome.storage.local.set({ vocabulary });
+  if (vocabularyMigrated) await persistRecords();
   settings = { ...settings, ...(data.settings || {}) };
   document.documentElement.dataset.font = settings.font;
   const session = await chrome.storage.session.get([
@@ -157,8 +157,31 @@ async function loadState() {
   await refreshLibrary();
 }
 async function persistRecords() {
-  await chrome.storage.local.set({ annotations, vocabulary });
+  const result = await chrome.runtime.sendMessage({
+    type: "SYNC_READER_RECORDS",
+    records: { annotations, vocabulary },
+  });
+  if (!result?.ok) {
+    throw new Error(result?.error || "Could not save reading records.");
+  }
+  annotations = result.annotations || annotations;
+  vocabulary = result.vocabulary || vocabulary;
 }
+async function removeStoredRecord(collection, id) {
+  const result = await chrome.runtime.sendMessage({
+    type: "DELETE_RECORD",
+    collection,
+    id,
+  });
+  if (!result?.ok) {
+    throw new Error(result?.error || "Could not delete reading record.");
+  }
+}
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.annotations) annotations = changes.annotations.newValue || [];
+  if (changes.vocabulary) vocabulary = changes.vocabulary.newValue || [];
+});
 function showView(name) {
   $$(".view").forEach((view) =>
     view.classList.toggle("active", view.id === `${name}View`),
@@ -166,7 +189,6 @@ function showView(name) {
   $$(".nav[data-view]").forEach((button) =>
     button.classList.toggle("active", button.dataset.view === name),
   );
-  if (name !== "reader") activeDocument = activeDocument;
 }
 function showToast(message) {
   $("#assistantTitle").textContent = "LeafReader";

@@ -1,12 +1,12 @@
 const panel = document.querySelector("#panel");
 const { esc, markdown } = window.LeafReaderMarkdown;
 const {
-  allConversations,
   appendFollowUp,
   clearConversation,
   conversationKey,
   ensureInitialConversation,
   loadConversation,
+  loadConversationMap,
   pending: isPendingResponse,
   readThread,
   saveThreadScroll,
@@ -163,13 +163,12 @@ async function renderThread(payload, writePayload = true) {
   const active =
     entries.find((entry) => entry.conversationId === payload.conversationId) ||
     entries.at(-1);
-  const rendered = await Promise.all(
-    entries.map(async (entry) => {
-      const messages = await loadConversation(entry);
-      return `<article class="thread-entry" data-thread-entry="${esc(entry.conversationId)}"><div class="entry-title">${esc(entry.title || "LeafReader")}</div><div class="label">SELECTED TEXT</div><blockquote>${esc(entry.quote)}</blockquote><div class="entry-response" data-thread-response="${esc(entry.conversationId)}">${resultContent(entry, messages)}</div></article>`;
-    }),
-  );
-  const activeMessages = await loadConversation(active);
+  const conversations = await loadConversationMap(entries);
+  const rendered = entries.map((entry) => {
+    const messages = conversations[entry.conversationId] || [];
+    return `<article class="thread-entry" data-thread-entry="${esc(entry.conversationId)}"><div class="entry-title">${esc(entry.title || "LeafReader")}</div><div class="label">SELECTED TEXT</div><blockquote>${esc(entry.quote)}</blockquote><div class="entry-response" data-thread-response="${esc(entry.conversationId)}">${resultContent(entry, messages)}</div></article>`;
+  });
+  const activeMessages = conversations[active.conversationId] || [];
   panel.innerHTML = `<div class="panel-content"><h1>${esc(thread.documentTitle || payload.documentTitle || "LeafReader")}</h1><div class="thread-list">${rendered.join("")}</div></div>${followUpMarkup()}`;
   bindFollowUp(active, activeMessages);
   const content = panel.querySelector(".panel-content");
@@ -191,30 +190,38 @@ async function render(payload) {
   if (payload.mode === "note") {
     panel.innerHTML = `<div class="panel-content"><h1>${esc(payload.title || "Add a note")}</h1><div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote><textarea id="note" placeholder="What do you want to remember?"></textarea><button class="primary" id="save">Save note</button></div>`;
     document.querySelector("#save").onclick = async () => {
-      const note = document.querySelector("#note").value.trim();
-      const { annotations = [] } =
-        await chrome.storage.local.get("annotations");
-      const record = {
-        id: `note:${crypto.randomUUID()}`,
-        documentId: payload.documentId,
-        documentTitle: payload.documentTitle,
-        quote: payload.quote,
-        context: payload.context,
-        anchor: payload.anchor || null,
-        note,
-        kind: "note",
-        favorite: false,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      annotations.push(record);
-      await chrome.storage.local.set({ annotations });
-      await chrome.runtime.sendMessage({
-        type: "ANNOTATION_SAVED",
-        tabId: payload.tabId,
-        record,
-      });
-      panel.innerHTML = `<div class="panel-content"><h1>Note saved</h1><div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote><p class="message">${esc(note || "Saved without a written note.")}</p></div>`;
+      try {
+        const note = document.querySelector("#note").value.trim();
+        const record = {
+          id: `note:${crypto.randomUUID()}`,
+          documentId: payload.documentId,
+          documentTitle: payload.documentTitle,
+          quote: payload.quote,
+          context: payload.context,
+          anchor: payload.anchor || null,
+          note,
+          kind: "note",
+          favorite: false,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        const saved = await chrome.runtime.sendMessage({
+          type: "UPSERT_RECORD",
+          collection: "annotations",
+          record,
+        });
+        if (!saved?.ok) {
+          throw new Error(saved?.error || "Could not save note.");
+        }
+        await chrome.runtime.sendMessage({
+          type: "ANNOTATION_SAVED",
+          tabId: payload.tabId,
+          record: saved.record,
+        });
+        panel.innerHTML = `<div class="panel-content"><h1>Note saved</h1><div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote><p class="message">${esc(note || "Saved without a written note.")}</p></div>`;
+      } catch (error) {
+        panel.innerHTML = `<div class="panel-content"><strong>Save failed:</strong> ${esc(error.message)}</div>`;
+      }
     };
     return;
   }
@@ -244,7 +251,8 @@ async function render(payload) {
   if (conversationKey(payload)) bindFollowUp(payload, messages);
 }
 async function renderHistory() {
-  const conversations = await allConversations();
+  const { aiConversations: conversations } =
+    await window.LeafReaderPanelStore.exportData();
   const entries = Object.entries(conversations).sort(
     ([, left], [, right]) => (right.updatedAt || 0) - (left.updatedAt || 0),
   );

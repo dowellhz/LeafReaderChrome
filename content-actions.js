@@ -65,26 +65,11 @@ const addVisualHighlight = (record) => {
 };
 const saveSelectionMarker = async (kind, extras = {}) =>
   localStorageCall(async () => {
-    const { annotations = [] } = await chrome.storage.local.get("annotations");
     const anchor = createAnchor(selectedRange);
-    // Retrying the same action should update one marker, not gradually stack
-    // identical highlights over the exact same words.
-    const existing = annotations.find(
-      (record) =>
-        record.kind === kind &&
-        record.documentId === documentId &&
-        record.anchor?.position === anchor?.position &&
-        record.anchor?.exact === anchor?.exact,
-    );
-    if (existing) {
-      Object.assign(existing, extras, { updatedAt: Date.now() });
-      await chrome.storage.local.set({ annotations });
-      return existing;
-    }
     const record = createRecord(kind, { anchor, favorite: false, ...extras });
-    annotations.push(record);
-    await chrome.storage.local.set({ annotations });
-    return record;
+    const result = await sendToExtension({ type: "SAVE_MARKER", record });
+    if (!result?.ok) throw new Error(result?.error || "Could not save marker.");
+    return result.record;
   });
 async function handleAction(action) {
   if (!selectedText) return;

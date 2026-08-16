@@ -1,34 +1,9 @@
-function chatEndpoint(endpoint) {
-  const base = String(endpoint || "")
-    .trim()
-    .replace(/\/+$/, "");
-  if (!base) return "";
-  return /\/chat\/completions(?:\?|$)/.test(base)
-    ? base
-    : `${base}/chat/completions`;
-}
-
-function providerEndpoint(provider, endpoint) {
-  const base = String(endpoint || "")
-    .trim()
-    .replace(/\/+$/, "");
-  if (provider === "gemini") return base;
-  // Anthropic uses its own Messages endpoint rather than Chat Completions.
-  // Settings normally contain the full `/v1/messages` URL, which must not be
-  // rewritten; allow a host/base URL as well.
-  if (provider === "anthropic") {
-    if (/\/v1\/messages(?:\?|$)/.test(base)) return base;
-    return `${base}/v1/messages`;
-  }
-  // Ollama's native API is `/api/chat`, not the OpenAI-compatible
-  // `/v1/chat/completions` route. Keep a complete native endpoint intact;
-  // accept a host or `/api` base as a small convenience for custom installs.
-  if (provider === "ollama") {
-    if (/\/api\/chat(?:\?|$)/.test(base)) return base;
-    return /\/api(?:\?|$)/.test(base) ? `${base}/chat` : `${base}/api/chat`;
-  }
-  return chatEndpoint(base);
-}
+import {
+  buildProviderRequest,
+  providerEndpoint,
+  responseFinishReason,
+  textFromModelResponse,
+} from "./ai-providers.js";
 
 function aiResponseLanguage(settings) {
   const selected =
@@ -36,33 +11,6 @@ function aiResponseLanguage(settings) {
       ? chrome.i18n.getUILanguage()
       : settings.language;
   return /^zh(?:-|$)/i.test(selected) ? "简体中文" : "English";
-}
-
-function textFromModelResponse(data) {
-  const message = data.choices?.[0]?.message;
-  const content = message?.content;
-  if (typeof content === "string" && content.trim()) return content;
-  if (Array.isArray(content)) {
-    const text = content
-      .map((part) =>
-        typeof part === "string" ? part : part.text || part.content || "",
-      )
-      .join("")
-      .trim();
-    if (text) return text;
-  }
-  const completion = data.choices?.[0]?.text;
-  if (typeof completion === "string" && completion.trim()) return completion;
-  if (typeof data.output_text === "string" && data.output_text.trim())
-    return data.output_text;
-  const output = Array.isArray(data.output)
-    ? data.output
-        .flatMap((item) => item.content || [])
-        .map((part) => part.text || part.value || "")
-        .join("")
-        .trim()
-    : "";
-  return output || "";
 }
 
 async function requestAI({
@@ -127,80 +75,16 @@ async function requestAI({
         },
       ];
   try {
-    let request;
-    if (provider === "anthropic")
-      request = {
-        endpoint,
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": settings.apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: {
-          model: settings.model,
-          max_tokens: maxOutputTokens,
-          system: `You are a concise reading assistant. Reply in ${language}.`,
-          messages: test
-            ? [{ role: "user", content: prompt }]
-            : messages.filter((message) => message.role !== "system"),
-        },
-        read: (data) =>
-          data.content
-            ?.filter((part) => part.type === "text")
-            .map((part) => part.text)
-            .join(""),
-      };
-    else if (provider === "gemini")
-      request = {
-        endpoint: `${endpoint}/models/${encodeURIComponent(settings.model)}:generateContent?key=${encodeURIComponent(settings.apiKey)}`,
-        headers: { "content-type": "application/json" },
-        body: {
-          contents: (test
-            ? [{ role: "user", content: prompt }]
-            : messages.filter((message) => message.role !== "system")
-          ).map((message) => ({
-            role: message.role === "assistant" ? "model" : "user",
-            parts: [{ text: message.content }],
-          })),
-          generationConfig: {
-            maxOutputTokens: maxOutputTokens,
-            temperature: 0.2,
-          },
-        },
-        read: (data) =>
-          data.candidates?.[0]?.content?.parts
-            ?.map((part) => part.text || "")
-            .join(""),
-      };
-    else if (provider === "ollama")
-      request = {
-        endpoint,
-        headers: { "content-type": "application/json" },
-        body: {
-          model: settings.model,
-          messages,
-          stream: false,
-          options: { temperature: 0.2, num_predict: maxOutputTokens },
-        },
-        read: (data) => data.message?.content,
-      };
-    else
-      request = {
-        endpoint,
-        headers: {
-          "Content-Type": "application/json",
-          ...(provider === "azure"
-            ? { "api-key": settings.apiKey }
-            : { Authorization: `Bearer ${settings.apiKey}` }),
-        },
-        body: {
-          model: settings.model,
-          messages,
-          temperature: 0.2,
-          max_tokens: maxOutputTokens,
-        },
-        read: textFromModelResponse,
-      };
+    const request = buildProviderRequest({
+      provider,
+      endpoint,
+      settings,
+      messages,
+      prompt,
+      test,
+      language,
+      maxOutputTokens,
+    });
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), test ? 30000 : 60000);
     let response;
@@ -229,18 +113,13 @@ async function requestAI({
       const messageLevel = data.choices?.[0]?.message
         ? Object.keys(data.choices[0].message).slice(0, 10).join(", ")
         : "none";
-      const finishReason = data.choices?.[0]?.finish_reason || "none";
+      const finishReason = responseFinishReason(data) || "none";
       return {
         ok: false,
         error: `请求成功，但没有找到文本内容。响应字段：${topLevel}；首个 choice 字段：${choiceLevel}；message 字段：${messageLevel}；结束原因：${finishReason}。请确认供应商类型、endpoint 和模型名称。`,
       };
     }
-    const finishReason =
-      data.choices?.[0]?.finish_reason ||
-      data.stop_reason ||
-      data.candidates?.[0]?.finishReason ||
-      data.done_reason ||
-      "";
+    const finishReason = responseFinishReason(data);
     const truncated = /(?:length|max.?tokens?)/i.test(String(finishReason));
     const completed = `${String(content)}${truncated ? "\n\n> 回答达到模型的输出长度上限，可能未完整结束。请在下方继续追问“继续”。" : ""}`;
     return {

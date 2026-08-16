@@ -65,35 +65,18 @@ const clearSelection = () => {
 };
 const save = async (key, value) =>
   localStorageCall(async () => {
-    const current = (await chrome.storage.local.get(key))[key] || [];
-    current.push(value);
-    await chrome.storage.local.set({ [key]: current });
+    const result = await sendToExtension({
+      type: "UPSERT_RECORD",
+      collection: key,
+      record: value,
+    });
+    if (!result?.ok) throw new Error(result?.error || "Could not save record.");
+    return result.record;
   });
 const saveWord = async () =>
   localStorageCall(async () => {
-    const { vocabulary = [] } = await chrome.storage.local.get("vocabulary");
     const lemma = lemmaFor(selectedText);
     const now = Date.now();
-    const existing = vocabulary.find((item) => item.lemma === lemma);
-    if (existing) {
-      existing.occurrences = Number(existing.occurrences || 1) + 1;
-      existing.lastSeenAt = now;
-      existing.updatedAt = now;
-      existing.documentIds = [
-        ...new Set([
-          ...(existing.documentIds || [existing.documentId].filter(Boolean)),
-          documentId,
-        ]),
-      ];
-      existing.contexts = [
-        ...(existing.contexts || [existing.context].filter(Boolean)),
-        selectedContext,
-      ]
-        .filter(Boolean)
-        .slice(-5);
-      await chrome.storage.local.set({ vocabulary });
-      return { record: existing, created: false };
-    }
     const record = createRecord("word", {
       word: selectedText.slice(0, 160),
       lemma,
@@ -108,20 +91,23 @@ const saveWord = async () =>
       correctCount: 0,
       lastSeenAt: now,
     });
-    vocabulary.push(record);
-    await chrome.storage.local.set({ vocabulary });
-    return { record, created: true };
+    const result = await sendToExtension({
+      type: "SAVE_VOCABULARY_OCCURRENCE",
+      record,
+    });
+    if (!result?.ok) throw new Error(result?.error || "Could not save word.");
+    return { record: result.record, created: result.created };
   });
 const saveDefinition = async (word, definition) =>
   localStorageCall(async () => {
-    const { vocabulary = [] } = await chrome.storage.local.get("vocabulary");
-    const item = vocabulary.find(
-      (candidate) => candidate.lemma === lemmaFor(word),
-    );
-    if (!item) return;
-    item.definition = definition;
-    item.updatedAt = Date.now();
-    await chrome.storage.local.set({ vocabulary });
+    const result = await sendToExtension({
+      type: "SAVE_VOCABULARY_DEFINITION",
+      lemma: lemmaFor(word),
+      definition,
+    });
+    if (!result?.ok)
+      throw new Error(result?.error || "Could not save definition.");
+    return result.record;
   });
 const createRecord = (kind, extras = {}) => ({
   id: `${kind}:${crypto.randomUUID()}`,

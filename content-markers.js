@@ -59,16 +59,40 @@ document.addEventListener(
 );
 restoreRecords().catch(() => {});
 let restoreTimer = 0;
-const observer = new MutationObserver((changes) => {
-  if (!changes.some((change) => !host.contains(change.target))) return;
-  if (location.href !== observedUrl) refreshIdentity();
+let idleRestore = 0;
+const scheduleRestore = () => {
   clearTimeout(restoreTimer);
-  restoreTimer = setTimeout(() => restoreRecords().catch(() => {}), 900);
+  restoreTimer = setTimeout(() => {
+    const run = () => restoreRecords().catch(() => {});
+    if ("requestIdleCallback" in window) {
+      window.cancelIdleCallback?.(idleRestore);
+      idleRestore = requestIdleCallback(run, { timeout: 1600 });
+    } else {
+      run();
+    }
+  }, 700);
+};
+const observer = new MutationObserver((changes) => {
+  const changedPageContent = changes.some(
+    (change) =>
+      change.type === "childList" &&
+      !host.contains(change.target) &&
+      [...change.addedNodes, ...change.removedNodes].some(
+        (node) => node !== host && !host.contains(node),
+      ),
+  );
+  if (!changedPageContent) return;
+  if (location.href !== observedUrl) refreshIdentity();
+  scheduleRestore();
 });
 observer.observe(document.body, {
   childList: true,
   subtree: true,
-  characterData: true,
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && (changes.annotations || changes.vocabulary)) {
+    scheduleRestore();
+  }
 });
 const refreshIdentity = () => {
   if (location.href !== observedUrl) {

@@ -1,4 +1,12 @@
 import { requestAI } from "./ai-client.js";
+import {
+  deleteRecord,
+  saveMarker,
+  saveVocabularyDefinition,
+  saveVocabularyOccurrence,
+  syncReaderRecords,
+  upsertRecord,
+} from "./record-store.js";
 
 const READER_URL = chrome.runtime.getURL("reader.html");
 async function openReader(tab) {
@@ -101,6 +109,33 @@ const messageHandlers = {
   AI_REQUEST: (message) => requestAI(message),
   AI_CHAT: (message) => requestAI(message),
   AI_TEST: (message) => requestAI({ ...message, test: true }),
+  async UPSERT_RECORD(message) {
+    const record = await upsertRecord(message.collection, message.record);
+    return { ok: true, record };
+  },
+  async DELETE_RECORD(message) {
+    await deleteRecord(message.collection, message.id);
+    return { ok: true };
+  },
+  async SAVE_MARKER(message) {
+    const record = await saveMarker(message.record);
+    return { ok: true, record };
+  },
+  async SAVE_VOCABULARY_OCCURRENCE(message) {
+    const result = await saveVocabularyOccurrence(message.record);
+    return { ok: true, ...result };
+  },
+  async SAVE_VOCABULARY_DEFINITION(message) {
+    const record = await saveVocabularyDefinition(
+      message.lemma,
+      message.definition,
+    );
+    return { ok: true, record };
+  },
+  async SYNC_READER_RECORDS(message) {
+    const records = await syncReaderRecords(message.records || {});
+    return { ok: true, ...records };
+  },
   async OPEN_LEAF_SIDEPANEL(message, sender) {
     await openLeafSidePanel(sender.tab, message.payload, Boolean(message.open));
     return { ok: true };

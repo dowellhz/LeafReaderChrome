@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { providerEndpoint, textFromModelResponse } from "../ai-client.js";
+import {
+  buildProviderRequest,
+  providerEndpoint,
+  textFromModelResponse,
+} from "../ai-providers.js";
 
 test("keeps provider-specific endpoint shapes", () => {
   assert.equal(
@@ -36,4 +40,33 @@ test("extracts OpenAI-compatible response text", () => {
     "hello world",
   );
   assert.equal(textFromModelResponse({ output_text: "done" }), "done");
+});
+
+test("builds provider-specific request payloads", () => {
+  const settings = { apiKey: "key", model: "model" };
+  const messages = [{ role: "user", content: "hello" }];
+  const gemini = buildProviderRequest({
+    provider: "gemini",
+    endpoint: "https://example.test/v1beta",
+    settings,
+    messages,
+    prompt: "ping",
+    test: false,
+    language: "English",
+    maxOutputTokens: 123,
+  });
+  assert.match(gemini.endpoint, /models\/model:generateContent\?key=key$/);
+  assert.equal(gemini.body.generationConfig.maxOutputTokens, 123);
+  const azure = buildProviderRequest({
+    provider: "azure",
+    endpoint: "https://example.test/chat/completions",
+    settings,
+    messages,
+    prompt: "ping",
+    test: false,
+    language: "English",
+    maxOutputTokens: 123,
+  });
+  assert.equal(azure.headers["api-key"], "key");
+  assert.equal(azure.headers.Authorization, undefined);
 });

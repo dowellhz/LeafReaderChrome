@@ -163,21 +163,19 @@ $("exportData").onclick = async () => {
       settings = {},
       annotations = [],
       vocabulary = [],
-      aiConversations = {},
-      sidePanelThreads = {},
     } = await chrome.storage.local.get([
       "settings",
       "annotations",
       "vocabulary",
-      "aiConversations",
-      "sidePanelThreads",
     ]);
+    const { aiConversations, sidePanelThreads } =
+      await window.LeafReaderPanelStore.exportData();
     const exportedSettings = { ...settings };
     if (!$("includeApiKey").checked) delete exportedSettings.apiKey;
     const documents = await window.LeafReaderLibraryStore.readAll();
     downloadBackup({
       format: "leafreaderchrome-backup",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       includesApiKey: Boolean($("includeApiKey").checked),
       settings: exportedSettings,
@@ -201,14 +199,10 @@ $("importData").onchange = async (event) => {
   event.target.value = "";
   if (!file) return;
   try {
-    const backup = JSON.parse(await file.text());
-    if (
-      backup.format !== "leafreaderchrome-backup" ||
-      !Array.isArray(backup.documents) ||
-      !Array.isArray(backup.annotations) ||
-      !Array.isArray(backup.vocabulary)
-    )
-      throw new Error("This is not a valid LeafReader Chrome backup.");
+    const backup = window.LeafReaderBackup.validateBackup(
+      JSON.parse(await file.text()),
+      file.size,
+    );
     if (
       !confirm(
         `Restore ${backup.documents.length} webpages, ${backup.annotations.length} annotations, and ${backup.vocabulary.length} words? Current LeafReader data will be replaced.`,
@@ -223,9 +217,8 @@ $("importData").onchange = async (event) => {
       settings: restoredSettings,
       annotations: backup.annotations,
       vocabulary: backup.vocabulary,
-      aiConversations: backup.aiConversations || {},
-      sidePanelThreads: backup.sidePanelThreads || {},
     });
+    await window.LeafReaderPanelStore.replaceData(backup);
     await window.LeafReaderLibraryStore.replaceAll(backup.documents);
     for (const id of fields)
       $(id).value =
@@ -245,17 +238,10 @@ $("runDiagnostics").onclick = async () => {
   output.textContent = "Checking…";
   output.classList.remove("error");
   try {
-    const {
-      annotations = [],
-      vocabulary = [],
-      aiConversations = {},
-      sidePanelThreads = {},
-    } = await chrome.storage.local.get([
-      "annotations",
-      "vocabulary",
-      "aiConversations",
-      "sidePanelThreads",
-    ]);
+    const { annotations = [], vocabulary = [] } =
+      await chrome.storage.local.get(["annotations", "vocabulary"]);
+    const { aiConversations, sidePanelThreads } =
+      await window.LeafReaderPanelStore.exportData();
     const documents = await window.LeafReaderLibraryStore.readAll();
     const voices = speechSynthesis.getVoices();
     const bytes = await chrome.storage.local.getBytesInUse();

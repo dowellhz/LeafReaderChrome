@@ -65,8 +65,16 @@ fallback strings remain English.
 - `annotations` — highlights, notes, translation/dictionary/explanation
   markers, including robust text anchors.
 - `vocabulary` — saved words and SRS state.
-- `aiConversations` — individual follow-up message history.
-- `sidePanelThreads` — URL-scoped result-card trail and scroll position.
+- `leafreader:panel:conversation:<id>` — one follow-up message history per
+  conversation.
+- `leafreader:panel:thread:<encoded-document-id>` — one URL-scoped
+  result-card trail and scroll position per webpage.
+- `record-store.js` serializes all annotation/vocabulary mutations in the
+  service worker. Content scripts and extension pages must message it instead
+  of doing whole-array read/modify/write operations locally.
+- `panel-store.js` migrates legacy `aiConversations` and `sidePanelThreads`
+  objects once; only the backup export format retains those legacy-shaped
+  aggregate names.
 - `chrome.storage.session.leafReaderSidePanel` — transient payload for the
   currently requested native Side Panel state.
 
@@ -108,6 +116,7 @@ node --check sidepanel.js
 node --check reader.js
 node --check options.js
 node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8'))"
+npm run smoke:chrome
 ```
 
 For a functional check:
