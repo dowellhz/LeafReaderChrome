@@ -146,15 +146,21 @@ function scrollThreadToEnd(content) {
   };
   settleScroll(content, apply);
 }
-function scrollThreadResponseToTop(content, conversationId) {
+function scrollThreadTargetToTop(content, conversationId, cardHeader = false) {
   if (!content || !conversationId) return scrollThreadToEnd(content);
-  const response = [...content.querySelectorAll("[data-thread-response]")].find(
-    (element) => element.dataset.threadResponse === conversationId,
-  );
-  if (!response) return scrollThreadToEnd(content);
+  const selector = cardHeader
+    ? "[data-thread-entry]"
+    : "[data-thread-response]";
+  const target = [...content.querySelectorAll(selector)].find((element) => {
+    const key = cardHeader
+      ? element.dataset.threadEntry
+      : element.dataset.threadResponse;
+    return key === conversationId;
+  });
+  if (!target) return scrollThreadToEnd(content);
   const apply = () => {
-    if (!content.isConnected || !response.isConnected) return;
-    response.scrollIntoView({ block: "start", inline: "nearest" });
+    if (!content.isConnected || !target.isConnected) return;
+    target.scrollIntoView({ block: "start", inline: "nearest" });
   };
   settleScroll(content, apply);
 }
@@ -183,7 +189,11 @@ async function renderThread(payload, writePayload = true) {
     { passive: true },
   );
   if (writePayload || payload.restoreThread)
-    scrollThreadResponseToTop(content, active.conversationId);
+    scrollThreadTargetToTop(
+      content,
+      active.conversationId,
+      Boolean(payload.restoreThread),
+    );
   else
     requestAnimationFrame(() => {
       if (content) content.scrollTop = thread.scrollTop || 0;

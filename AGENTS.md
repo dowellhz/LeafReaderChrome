@@ -31,8 +31,9 @@ fallback strings remain English.
 3. Translation, dictionary lookup, and AI explanation create persistent,
    clickable original-page markers. Do not replace these with DOM wrappers;
    use the CSS Custom Highlight API and the stored text anchors.
-4. Clicking a marker opens the native Side Panel and scrolls to that marker's
-   response body, not merely the beginning of the thread.
+4. Clicking a marker opens the native Side Panel and scrolls that result
+   card's header (title and selected text) to the top, not the response middle
+   or merely the beginning of the thread.
 5. AI trails are scoped by the complete `web:<URL>` document id. Never show a
    previous page's trail on a different URL.
 6. New result cards target their response body in the side panel; follow-up

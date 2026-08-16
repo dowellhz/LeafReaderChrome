@@ -16,6 +16,17 @@ let child;
 const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+async function stopChrome() {
+  if (!child || child.exitCode !== null) return;
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  child.kill("SIGTERM");
+  await Promise.race([exited, delay(2000)]);
+  if (child.exitCode === null) {
+    child.kill("SIGKILL");
+    await exited;
+  }
+}
+
 async function waitForServiceWorker() {
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
@@ -63,6 +74,6 @@ try {
   const worker = await Promise.race([waitForServiceWorker(), launchError]);
   console.log(`Chrome smoke test passed: ${worker.url}`);
 } finally {
-  child?.kill("SIGTERM");
+  await stopChrome();
   await rm(profile, { recursive: true, force: true });
 }

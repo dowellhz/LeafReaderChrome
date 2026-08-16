@@ -294,9 +294,13 @@ footer {
 }
 .composer {
   flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   padding: 10px 19px 8px;
   border-top: 1px solid #e2e1d8;
   background: #f9f7f0;
+  box-shadow: 0 -5px 14px #f9f7f0e8;
 }
 .follow-up {
   margin: 0;
@@ -400,6 +404,7 @@ footer {
     Georgia,
     serif;
 }
+.thread-entry,
 .entry-response {
   scroll-margin-top: 14px;
 }

@@ -74,13 +74,19 @@ test("side panel scrolls its actual overflow container", async () => {
   const source = await readFile(path.join(root, "sidepanel.js"), "utf8");
   assert.match(
     source,
-    /scrollThreadResponseToTop\(content, active\.conversationId\)/,
+    /scrollThreadTargetToTop\(\s*content,\s*active\.conversationId/,
   );
   assert.match(
     source,
     /persistThreadScroll\(thread\.documentId, content\.scrollTop\)/,
   );
-  assert.match(source, /response\.scrollIntoView/);
+  assert.match(source, /target\.scrollIntoView/);
+});
+
+test("side panel keeps the follow-up composer fixed at the bottom", async () => {
+  const css = await readFile(path.join(root, "sidepanel.css"), "utf8");
+  assert.match(css, /\.composer\s*\{[\s\S]*position:\s*sticky/);
+  assert.match(css, /\.composer\s*\{[\s\S]*bottom:\s*0/);
 });
 
 test("side panel listens for session payload updates via chrome.storage", async () => {
