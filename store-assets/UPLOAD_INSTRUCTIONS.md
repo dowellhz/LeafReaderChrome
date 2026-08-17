@@ -11,10 +11,7 @@ Use these files in the store listing:
 - `screenshot-01-difficult-sentence-1280x800.jpg` — product screenshot.
 
 Copy the text from `../CHROME_WEB_STORE_LISTING.md` into the Store listing
-form. Publish the privacy policy at
-`https://github.com/dowellhz/LeafReaderChrome/blob/main/PRIVACY.md` after the
-pending release changes have been pushed to `main`, then use that URL in the
-Privacy tab.
+form. Use `https://dowellhz.github.io/LeafReaderChrome/` in the Privacy tab.
 
 Before selecting **Submit for review**, complete every required field, keep
 the initial visibility as **Unlisted**, and use the permission explanations
