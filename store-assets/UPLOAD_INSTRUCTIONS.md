@@ -1,6 +1,6 @@
 # Chrome Web Store upload bundle
 
-Upload `LeafReader-Chrome-v1.0.58.zip` with the Developer Dashboard's
+Upload `LeafReader-Chrome-v1.0.59.zip` with the Developer Dashboard's
 **Upload new item** button.
 
 Use these files in the store listing:

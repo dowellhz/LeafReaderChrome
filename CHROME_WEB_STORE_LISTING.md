@@ -43,8 +43,8 @@ Help readers understand, annotate, and revisit ordinary webpages.
 
 - `storage` and `unlimitedStorage`: save the local reading library, notes,
   vocabulary, AI trails, and the bundled offline dictionary index.
-- `activeTab`, `scripting`, and HTTP/HTTPS host access: add the selection
-  toolbar and original-page markers only on webpages the reader opens.
+- HTTP/HTTPS host access: add the selection toolbar and original-page markers
+  only on webpages the reader opens.
 - `tabs`: open the reader view and associate a Side Panel response with its
   source tab.
 - `sidePanel`: show selected-text results in Chrome's native Side Panel.
