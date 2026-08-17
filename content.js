@@ -270,6 +270,7 @@
   }
   const startToolbarAction = async (action) => {
     if (!action) return;
+    refreshIdentity();
     // Do this synchronously from pointerdown. Chrome only permits
     // sidePanel.open() while the content-script user gesture is live.
     const opened = await sendToExtension({ type:'OPEN_LEAF_SIDEPANEL', open:true, payload:{ mode:'result', title:'LeafReader', body:'Loading…', quote:selectedText, documentId, documentTitle, context:selectedContext } });

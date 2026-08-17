@@ -19,3 +19,9 @@ test('shared anchor code loads before content and reader code', () => {
   assert.deepEqual(manifest.content_scripts[0].js, ['tts-core.js', 'anchor-core.js', 'translation-core.js', 'content.js']);
   assert.match(read('reader.html'), /anchor-core\.js"><\/script><script src="reader\.js/);
 });
+
+test('the native side panel is configured per tab instead of globally', () => {
+  const manifest = JSON.parse(read('manifest.json'));
+  assert.equal(manifest.side_panel, undefined);
+  assert.match(read('background.js'), /setOptions\(\{\s*tabId,\s*path:\s*'sidepanel\.html',\s*enabled:\s*true\s*\}\)/);
+});

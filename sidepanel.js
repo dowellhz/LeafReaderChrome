@@ -93,8 +93,14 @@ const threadKey = (documentId) => documentId ? `thread:${documentId}` : '';
 const isThreadPayload = (payload) => payload?.mode === 'result' && Boolean(payload?.documentId && payload?.conversationId);
 async function readThread(documentId) {
   const key = threadKey(documentId); if (!key) return null;
-  const { sidePanelThreads = {} } = await chrome.storage.local.get('sidePanelThreads');
-  return sidePanelThreads[key] || null;
+  const { sidePanelThreads = {}, annotations = [], aiConversations = {} } = await chrome.storage.local.get(['sidePanelThreads', 'annotations', 'aiConversations']);
+  const stored = sidePanelThreads[key] || null;
+  const restored = LeafSidePanelHistory.threadFromHistory(documentId, stored?.documentTitle || '', annotations, aiConversations);
+  if (!stored) return restored;
+  if (!restored) return stored;
+  const entries = new Map(restored.entries.map((entry) => [entry.conversationId, entry]));
+  stored.entries.forEach((entry) => entries.set(entry.conversationId, { ...entries.get(entry.conversationId), ...entry, readOnly:false }));
+  return { ...restored, ...stored, entries:[...entries.values()].sort((left, right) => (left.updatedAt || 0) - (right.updatedAt || 0)) };
 }
 async function upsertThread(payload) {
   if (!threadKey(payload.documentId)) return null;
@@ -164,14 +170,14 @@ async function renderThread(payload, writePayload = true, generation = renderGen
   const entries = thread.entries;
   const active = entries.find((entry) => entry.conversationId === payload.conversationId) || entries.at(-1);
   const rendered = await Promise.all(entries.map(async (entry) => {
-    const messages = await loadConversation(entry);
+    const messages = entry.readOnly ? [] : await loadConversation(entry);
     return `<article class="thread-entry" data-thread-entry="${esc(entry.conversationId)}"><div class="entry-title">${esc(entry.title || 'LeafReader')}</div><div class="label">SELECTED TEXT</div><blockquote>${esc(entry.quote)}</blockquote><div class="entry-response" data-thread-response="${esc(entry.conversationId)}">${resultContent(entry, messages)}</div></article>`;
   }));
-  const activeMessages = await loadConversation(active);
+  const activeMessages = active.readOnly ? [] : await loadConversation(active);
   if (!currentRender(generation)) return false;
   setPanelTitle(thread.documentTitle || payload.documentTitle || 'LeafReader');
-  panel.innerHTML = `<div class="panel-content"><div class="thread-list">${rendered.join('')}</div></div>${followUpMarkup()}`;
-  bindFollowUp(active, activeMessages, generation);
+  panel.innerHTML = `<div class="panel-content"><div class="thread-list">${rendered.join('')}</div></div>${active.readOnly ? '' : followUpMarkup()}`;
+  if (!active.readOnly) bindFollowUp(active, activeMessages, generation);
   const content = panel.querySelector('.panel-content');
   content?.addEventListener('scroll', () => persistThreadScroll(thread.documentId, content.scrollTop), { passive:true });
   if (writePayload || payload.restoreThread) scrollThreadResponseToTop(content, active.conversationId);
@@ -237,8 +243,14 @@ async function renderActivePageThread() {
   const latest = thread.entries.at(-1);
   await renderThread({ ...latest, documentId, documentTitle:tab.title || thread.documentTitle }, false, generation);
 }
-async function load() { const { leafReaderSidePanel } = await chrome.storage.session.get('leafReaderSidePanel'); if (leafReaderSidePanel?.payload) await render(leafReaderSidePanel.payload); else await renderActivePageThread(); }
+async function load() {
+  const [{ leafReaderSidePanel }, [tab]] = await Promise.all([chrome.storage.session.get('leafReaderSidePanel'), chrome.tabs.query({ active:true, currentWindow:true })]);
+  if (leafReaderSidePanel?.payload && leafReaderSidePanel.tabId === tab?.id) await render(leafReaderSidePanel.payload);
+  else await renderActivePageThread();
+}
 chrome.storage.session.onChanged.addListener((changes) => { if (!changes.leafReaderSidePanel) return; if (changes.leafReaderSidePanel.newValue?.payload) void render(changes.leafReaderSidePanel.newValue.payload); else void renderActivePageThread(); });
+chrome.tabs.onActivated.addListener(() => void renderActivePageThread());
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => { if (tab.active && (changeInfo.url || changeInfo.status === 'complete')) void renderActivePageThread(); });
 const openReaderButton = document.querySelector('#openReader'); const headerActions = document.createElement('div'); headerActions.className = 'header-actions'; const historyButton = document.createElement('button'); historyButton.id = 'viewHistory'; historyButton.title = 'AI conversation history'; historyButton.textContent = '☷'; openReaderButton.replaceWith(headerActions); headerActions.append(historyButton, openReaderButton);
 historyButton.onclick = () => void renderHistory();
 openReaderButton.onclick = () => chrome.runtime.sendMessage({ type:'OPEN_READER_FROM_SIDEPANEL' });
