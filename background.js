@@ -110,7 +110,9 @@ async function mutateStorage(mutation) {
       updatedAt:Date.now(),
       documentIds,
       contexts,
-      anchors
+      anchors,
+      conversationId:candidate.conversationId || existing.conversationId,
+      presentation:candidate.presentation || existing.presentation
     });
     await chrome.storage.local.set({ vocabulary });
     return { record:existing, records:vocabulary, created:false };

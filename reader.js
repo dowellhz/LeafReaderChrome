@@ -60,7 +60,7 @@ const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&':'&am
 const cleanText = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 const makeId = (kind) => `${kind}:${crypto.randomUUID()}`;
 const relativeDate = (ms) => { const days = Math.floor((Date.now() - ms) / 86400000); return !days ? 'Today' : days === 1 ? 'Yesterday' : `${days} days ago`; };
-const annotationLabel = (kind) => ({ highlight: 'Highlight', note: 'Note', translation: 'Translation', dictionary: 'Dictionary', explanation: 'AI explanation' }[kind] || 'Highlight');
+const annotationLabel = (kind) => ({ highlight: 'Highlight', note: 'Note', translation: 'Translation', dictionary: '单词释义', explanation: '讲解' }[kind] || 'Highlight');
 const lemmaFor = (value) => {
   const word = cleanText(value).toLocaleLowerCase().replace(/^[^\p{L}]+|[^\p{L}'-]+$/gu, '');
   if (!/^[a-z][a-z'-]*$/i.test(word)) return word;
@@ -278,13 +278,9 @@ function selectionChanged() {
 }
 document.addEventListener('selectionchange', () => requestAnimationFrame(selectionChanged));
 function clearSelection() { getSelection()?.removeAllRanges(); $('#selectionToolbar').hidden = true; selected = null; }
-async function addHighlight() {
-  if (!selected || !activeDocument) return;
-  const record = { id:makeId('highlight'), documentId:activeDocument.id, documentTitle:activeDocument.title, quote:selected.text, context:selected.context, anchor:selected.anchor, kind:'highlight', createdAt:Date.now(), updatedAt:Date.now() };
-  const result = await mutateStorage({ operation:'addRecord', key:'annotations', record }); acceptRecords('annotations', result); restoreAnnotations(); clearSelection();
-}
 async function addWord() {
   if (!selected || !activeDocument) return;
+  if (selected.text.length > 160) { await aiAction('translate'); return; }
   const word = selected.text.slice(0, 160); const lemma = lemmaFor(word); const record = { id:makeId('word'), documentId:activeDocument.id, documentTitle:activeDocument.title, word, lemma, context:selected.context, contexts:[selected.context], documentIds:[activeDocument.id], anchor:selected.anchor, anchors:{ [activeDocument.id]:selected.anchor }, definition:'', occurrences:1, status:'new', intervalDays:0, dueAt:Date.now(), reviewCount:0, correctCount:0, createdAt:Date.now(), updatedAt:Date.now() };
   const result = await mutateStorage({ operation:'saveVocabulary', record }); acceptRecords('vocabulary', result); restoreAnnotations();
   if (!result.created) showToast(`Vocabulary updated: seen ${result.record.occurrences} times.`);
@@ -326,7 +322,7 @@ async function askAboutDocument(question) {
   const sources = retrievalContext(question); return askAI(`${question}\n\nAnswer only from the supplied source excerpts. Cite every substantive claim as [S1], [S2], etc. If the sources do not support an answer, say so.`, '', sources);
 }
 async function aiAction(action) {
-  if (!selected) return; const title = action === 'translate' ? 'Translation' : 'AI explanation'; openAssistant(title);
+  if (!selected) return; const title = action === 'translate' ? 'Translation' : '讲解'; openAssistant(title);
   try { setAssistantResult(await askAI(action === 'translate' ? 'Translate naturally. Output the translation first, then only brief notes if needed.' : 'Explain this word, phrase, or passage: its meaning in context, important usage, and any grammar worth noticing.', selected.text, selected.context)); } catch(error) { setAssistantResult(`Could not reach the AI provider: ${error.message}`, false); } clearSelection();
 }
 function voiceForLanguage(language) {
@@ -462,9 +458,9 @@ function bind() {
   $('#ttsPitch').value = ttsPreferences.pitch; $('#ttsPitch').oninput = (event) => { ttsPreferences = { ...ttsPreferences, pitch:Number(event.target.value) }; void chrome.storage.local.set({ ttsPreferences }); };
   $('#aiSummary').onclick=async()=>{ if(!activeDocument)return; openAssistant('Reading summary'); try { setAssistantResult(await askAboutDocument('Summarize this reading in 3–5 concise key points, then list important people, events, or ideas and one reading note.')); } catch(error) { setAssistantResult(`Could not reach the AI provider: ${error.message}`, false); } };
   $('#selectionToolbar').onmousedown = (event) => event.preventDefault();
-  $('#selectionToolbar').onclick=(event)=>{const action=event.target.closest('button')?.dataset.action;if(!action)return;if(action==='highlight')addHighlight();if(action==='note')openNote();if(action==='word')addWord();if(action==='translate'||action==='explain')aiAction(action);if(action==='speak')speak();};
+  $('#selectionToolbar').onclick=(event)=>{const action=event.target.closest('button')?.dataset.action;if(!action)return;if(action==='note')openNote();if(action==='word')addWord();if(action==='translate'||action==='explain')aiAction(action);if(action==='speak')speak();};
   $('#closeAssistant').onclick=()=>$('#assistantPanel').hidden=true; $('#followUpForm').onsubmit=async(event)=>{event.preventDefault();const question=$('#followUp').value.trim();if(!question)return;openAssistant('LeafReader AI');try{setAssistantResult(await askAboutDocument(question));}catch(error){setAssistantResult(`Could not reach the AI provider: ${error.message}`, false);}$('#followUp').value='';};
-  $('#article').onclick=(event)=>{ if (!getSelection()?.isCollapsed) return; const point=document.caretRangeFromPoint?.(event.clientX,event.clientY)||(()=>{const position=document.caretPositionFromPoint?.(event.clientX,event.clientY);if(!position)return null;const range=document.createRange();range.setStart(position.offsetNode,position.offset);range.collapse(true);return range;})();if(!point)return;const hit=[...readerPaintedRanges].reverse().find(({range})=>{try{return range.isPointInRange(point.startContainer,point.startOffset);}catch(_){return false;}});const item=hit?.record;if(item?.note)showToast(item.note);else if(item?.definition){openAssistant('Dictionary');setAssistantResult(item.definition);$('#assistantPanel').hidden=false;}};
+  $('#article').onclick=(event)=>{ if (!getSelection()?.isCollapsed) return; const point=document.caretRangeFromPoint?.(event.clientX,event.clientY)||(()=>{const position=document.caretPositionFromPoint?.(event.clientX,event.clientY);if(!position)return null;const range=document.createRange();range.setStart(position.offsetNode,position.offset);range.collapse(true);return range;})();if(!point)return;const hit=[...readerPaintedRanges].reverse().find(({range})=>{try{return range.isPointInRange(point.startContainer,point.startOffset);}catch(_){return false;}});const item=hit?.record;if(item?.note)showToast(item.note);else if(item?.definition){openAssistant('单词释义');setAssistantResult(item.definition);$('#assistantPanel').hidden=false;}};
   }
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;

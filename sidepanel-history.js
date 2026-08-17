@@ -6,7 +6,7 @@
   const entryTitle = (kind, presentation) => ({
     translation:'Translation',
     dictionary:'单词释义',
-    explanation:'AI explanation',
+    explanation:'讲解',
     note:'Note',
     highlight:'Highlight'
   }[kind] || (presentation === 'dictionary' ? '单词释义' : 'LeafReader AI'));
