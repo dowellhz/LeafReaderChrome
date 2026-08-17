@@ -20,16 +20,36 @@
 
   const languageKey = (language) => String(language || 'en').toLowerCase().split('-')[0];
 
+  // macOS exposes novelty voices such as Albert, Bells, Boing, and Zarvox to
+  // the Web Speech API alongside normal narration voices. Chrome does not
+  // distinguish them, and often returns Albert first for en-US. Never choose
+  // one automatically; an explicitly configured voice is still respected.
+  const noveltyVoicePattern = /\b(?:albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox)\b/i;
+  const preferredVoiceNames = {
+    en: ['samantha', 'daniel', 'karen', 'moira', 'tessa'],
+    zh: ['tingting', 'meijia', 'sinji'],
+    ja: ['kyoko'],
+    ko: ['yuna']
+  };
+
+  function voiceScore(voice, language) {
+    const key = languageKey(language);
+    const identity = `${voice?.name || ''} ${voice?.voiceURI || ''}`;
+    const preferredIndex = (preferredVoiceNames[key] || []).findIndex((name) => identity.toLowerCase().includes(name));
+    return (String(voice?.lang).toLowerCase() === String(language).toLowerCase() ? 40 : 0)
+      + (voice?.localService ? 20 : 0)
+      + (voice?.default ? 10 : 0)
+      + (preferredIndex >= 0 ? 30 - preferredIndex : 0)
+      - (noveltyVoicePattern.test(identity) ? 1000 : 0);
+  }
+
   function selectVoice(voices, language, configuredVoiceUri = '', localOnly = true) {
     const key = languageKey(language);
     const compatible = (Array.isArray(voices) ? voices : []).filter((voice) => languageKey(voice?.lang) === key);
     const candidates = localOnly ? compatible.filter((voice) => voice.localService) : compatible;
     const configured = candidates.find((voice) => voice.voiceURI === configuredVoiceUri);
     if (configured) return configured;
-    return [...candidates].sort((left, right) => {
-      const score = (voice) => (String(voice.lang).toLowerCase() === String(language).toLowerCase() ? 4 : 0) + (voice.localService ? 2 : 0) + (voice.default ? 1 : 0);
-      return score(right) - score(left);
-    })[0] || null;
+    return [...candidates].sort((left, right) => voiceScore(right, language) - voiceScore(left, language))[0] || null;
   }
 
   function chunkText(text, maxLength = 280) {
@@ -96,5 +116,5 @@
     };
   }
 
-  return { chunkText, cleanText, createPlaybackState, languageKey, preferredLanguage, selectVoice, speechText };
+  return { chunkText, cleanText, createPlaybackState, languageKey, preferredLanguage, selectVoice, speechText, voiceScore };
 });

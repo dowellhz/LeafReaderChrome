@@ -193,17 +193,45 @@
     return contentVoicesPromise;
   };
   const selectionSpeechChunks = (text) => LeafTts.chunkText(text, 320);
-  const stopSelectionSpeech = () => { const generation = contentTtsState.cancel(); speechSynthesis.cancel(); ttsPlayer.hidden = true; ttsToggle.hidden = false; ttsToggle.textContent = '暂停'; return generation; };
-  const toggleSelectionSpeech = () => { if (!contentTtsState.remaining) return; if (speechSynthesis.paused || contentTtsState.paused) { contentTtsState.resume(); speechSynthesis.resume(); ttsToggle.textContent = '暂停'; ttsStatus.textContent = '正在朗读'; } else { contentTtsState.pause(); speechSynthesis.pause(); ttsToggle.textContent = '继续'; ttsStatus.textContent = '已暂停'; } };
+  let contentTtsQueue = [];
+  let contentTtsIndex = 0;
+  let contentUtteranceActive = false;
+  const setSelectionSpeechHighlight = (range) => {
+    if (!window.CSS?.highlights || !window.Highlight) return;
+    if (range) window.CSS.highlights.set('leafreader-page-tts', new Highlight(range));
+    else window.CSS.highlights.delete('leafreader-page-tts');
+  };
+  const stopSelectionSpeech = () => { const generation = contentTtsState.cancel(); contentTtsQueue = []; contentTtsIndex = 0; contentUtteranceActive = false; speechSynthesis.cancel(); setSelectionSpeechHighlight(null); ttsPlayer.hidden = true; ttsToggle.hidden = false; ttsToggle.textContent = '暂停'; return generation; };
+  const speakNextSelectionChunk = (generation) => {
+    if (!contentTtsState.isCurrent(generation) || contentTtsState.paused || contentTtsIndex >= contentTtsQueue.length) return;
+    const item = contentTtsQueue[contentTtsIndex];
+    const utterance = new SpeechSynthesisUtterance(item.spokenText); utterance.lang = item.voice?.lang || item.language; utterance.rate = Math.min(1.5, Math.max(.7, Number(ttsPreferences.rate) || 1)); utterance.pitch = Math.min(1.2, Math.max(.8, Number(ttsPreferences.pitch) || 1)); if (item.voice) utterance.voice = item.voice;
+    ttsStatus.textContent = `正在朗读${item.voice?.name ? ` · ${item.voice.name}` : ''}`;
+    contentUtteranceActive = true;
+    utterance.onend = () => {
+      if (!contentTtsState.isCurrent(generation)) return;
+      contentUtteranceActive = false; contentTtsIndex += 1;
+      const result = contentTtsState.complete(generation);
+      if (result.done) { setSelectionSpeechHighlight(null); ttsPlayer.hidden = true; return; }
+      speakNextSelectionChunk(generation);
+    };
+    utterance.onerror = (event) => {
+      if (!contentTtsState.isCurrent(generation)) return;
+      contentUtteranceActive = false;
+      if (['interrupted','canceled'].includes(event.error)) return;
+      const failureGeneration = contentTtsState.fail(generation); speechSynthesis.cancel(); setSelectionSpeechHighlight(null); ttsStatus.textContent = `朗读错误：${event.error || 'unknown'}`; ttsToggle.hidden = true; ttsPlayer.hidden = false; setTimeout(() => { if (contentTtsState.isCurrent(failureGeneration)) ttsPlayer.hidden = true; }, 4000);
+    };
+    speechSynthesis.speak(utterance);
+  };
+  const toggleSelectionSpeech = () => { if (!contentTtsState.remaining) return; if (speechSynthesis.paused || contentTtsState.paused) { contentTtsState.resume(); speechSynthesis.resume(); ttsToggle.textContent = '暂停'; ttsStatus.textContent = '正在朗读'; if (!contentUtteranceActive) speakNextSelectionChunk(contentTtsState.generation); } else { contentTtsState.pause(); speechSynthesis.pause(); ttsToggle.textContent = '继续'; ttsStatus.textContent = '已暂停'; } };
   const speakSelection = async () => {
-    const text = selectedText; const waitingGeneration = stopSelectionSpeech(); await ensureTtsVoices(); if (!contentTtsState.isCurrent(waitingGeneration)) return { ok:false, canceled:true };
-    const chunks = selectionSpeechChunks(text); const queue = chunks.map((chunk) => ({ ...chunk, spokenText:LeafTts.speechText(chunk.text, chunk.language), voice:voiceForLanguage(chunk.language) })).filter((item) => item.spokenText); const missing = queue.find((item) => !item.voice);
-    if (ttsPreferences.localOnly && missing) return { ok:false, language:missing.language };
-    if (!queue.length) return { ok:false }; const generation = contentTtsState.begin(queue.length);
+    const text = selectedText; const speechRange = selectedRange?.cloneRange(); const waitingGeneration = stopSelectionSpeech(); await ensureTtsVoices(); if (!contentTtsState.isCurrent(waitingGeneration)) return { ok:false, canceled:true };
+    const chunks = selectionSpeechChunks(text); contentTtsQueue = chunks.map((chunk) => ({ ...chunk, spokenText:LeafTts.speechText(chunk.text, chunk.language), voice:voiceForLanguage(chunk.language) })).filter((item) => item.spokenText); const missing = contentTtsQueue.find((item) => !item.voice);
+    if (ttsPreferences.localOnly && missing) { contentTtsQueue = []; return { ok:false, language:missing.language }; }
+    if (!contentTtsQueue.length) return { ok:false }; contentTtsIndex = 0; const generation = contentTtsState.begin(contentTtsQueue.length); setSelectionSpeechHighlight(speechRange);
     ttsPlayer.hidden = false; ttsToggle.hidden = false; ttsStatus.textContent = '正在朗读'; ttsToggle.textContent = '暂停';
-    const finished = () => { const result = contentTtsState.complete(generation); if (result.accepted && result.done) ttsPlayer.hidden = true; };
-    for (const item of queue) { const utterance = new SpeechSynthesisUtterance(item.spokenText); utterance.lang = item.voice?.lang || item.language; utterance.rate = Math.min(1.5, Math.max(.7, Number(ttsPreferences.rate) || 1)); utterance.pitch = Math.min(1.2, Math.max(.8, Number(ttsPreferences.pitch) || 1)); if (item.voice) utterance.voice = item.voice; utterance.onend = finished; utterance.onerror = (event) => { if (!contentTtsState.isCurrent(generation)) return; if (['interrupted','canceled'].includes(event.error)) { finished(); return; } const failureGeneration = contentTtsState.fail(generation); speechSynthesis.cancel(); ttsStatus.textContent = `朗读错误：${event.error || 'unknown'}`; ttsToggle.hidden = true; ttsPlayer.hidden = false; setTimeout(() => { if (contentTtsState.isCurrent(failureGeneration)) ttsPlayer.hidden = true; }, 4000); }; speechSynthesis.speak(utterance); }
-    return { ok:Boolean(queue.length) };
+    speakNextSelectionChunk(generation);
+    return { ok:true };
   };
   ttsToggle.onclick = toggleSelectionSpeech;
   shadow.querySelector('[data-tts-stop]').onclick = stopSelectionSpeech;
@@ -225,6 +253,7 @@
     if (action === 'word') { const { record, created } = await saveWord(); addVisualHighlight(record); display(created ? 'Saved to vocabulary' : 'Vocabulary updated', created ? '已加入个人词库。点击“词典”可用 AI 补全中文释义；词条会在复习页按间隔重复出现。' : `已记录第 ${record.occurrences} 次出现，并保留新的阅读上下文。`, selectedText); clearSelection(); return; }
     if (action === 'speak') { const spoken = await speakSelection(); if (spoken.canceled) return; display(spoken.ok ? 'Read aloud' : 'Local voice unavailable', spoken.ok ? 'LeafReader is reading the selected text aloud. Use the floating controls to pause, continue, or stop.' : `No installed local ${spoken.language || ''} voice is available. Install one in the operating system, or allow online voices in reading settings.`, selectedText);clearSelection();return; }
     if (action === 'dictionary') {
+      void speakSelection();
       const conversationId = crypto.randomUUID(); const marker = await saveSelectionMarker('dictionary', { conversationId, presentation:'dictionary' }); addVisualHighlight(marker);
       display('单词释义', '正在按上下文解释…', selectedText, { conversationId, presentation:'dictionary' });
       try {

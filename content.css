@@ -6,3 +6,4 @@
 ::highlight(leafreader-page-translation) { background: #cfe9ff; color: inherit; }
 ::highlight(leafreader-page-dictionary) { background: #e7dcff; color: inherit; }
 ::highlight(leafreader-page-explanation) { background: #d8f0db; color: inherit; }
+::highlight(leafreader-page-tts) { background: #b9ddc2aa; color: inherit; }

@@ -28,6 +28,24 @@ test('selects configured voices and enforces local-only mode', () => {
   assert.equal(selectVoice([{ voiceURI:'remote', lang:'zh-CN', localService:false }], 'zh-CN', '', true), null);
 });
 
+test('automatic selection avoids macOS novelty voices', () => {
+  const voices = [
+    { name:'Albert', voiceURI:'com.apple.voice.Albert', lang:'en-US', localService:true, default:false },
+    { name:'Bells', voiceURI:'com.apple.voice.Bells', lang:'en-US', localService:true, default:false },
+    { name:'Samantha', voiceURI:'com.apple.voice.Samantha', lang:'en-US', localService:true, default:false }
+  ];
+  assert.equal(selectVoice(voices, 'en-US', '', true).name, 'Samantha');
+  assert.equal(selectVoice(voices, 'en-US', voices[0].voiceURI, true).name, 'Albert');
+});
+
+test('automatic selection prefers familiar natural voices for each language', () => {
+  const voices = [
+    { name:'Eddy（中文）', voiceURI:'eddy-zh', lang:'zh-CN', localService:true, default:false },
+    { name:'Tingting', voiceURI:'tingting', lang:'zh-CN', localService:true, default:false }
+  ];
+  assert.equal(selectVoice(voices, 'zh-CN', '', true).name, 'Tingting');
+});
+
 test('normalizes text that sounds noisy when synthesized', () => {
   assert.equal(speechText('Visit https://example.com/a **now**!!!', 'en-US'), 'Visit link now!');
   assert.equal(speechText('打开 https://example.com ，，，', 'zh-CN'), '打开 链接，');
