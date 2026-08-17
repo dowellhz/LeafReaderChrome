@@ -132,7 +132,7 @@
   let restoreGeneration = 0;
   const yieldForPainting = () => new Promise((resolve) => (globalThis.requestIdleCallback ? requestIdleCallback(resolve, { timeout:120 }) : setTimeout(resolve, 0)));
   const restoreRecords = async () => {
-    if (!extensionContextIsAlive()) return;
+    if (!extensionContextIsAlive() || !document.body) return;
     const generation = ++restoreGeneration;
     for (const name of highlightSets.keys()) window.CSS?.highlights?.delete(name);
     highlightSets.clear();
@@ -251,6 +251,7 @@
     if (action === 'note') { sendToExtension({ type:'OPEN_LEAF_SIDEPANEL', payload:{ mode:'note', title:'Add a note', quote:selectedText, documentId, documentTitle, context:selectedContext, anchor:createAnchor(selectedRange) } }); clearSelection(); return; }
     if (action === 'speak') { const spoken = await speakSelection(); if (spoken.canceled) return; if (!spoken.ok) { ttsStatus.textContent = `没有可用的本地 ${spoken.language || ''} 语音`; ttsToggle.hidden = true; ttsPlayer.hidden = false; setTimeout(() => { ttsPlayer.hidden = true; }, 4000); } clearSelection(); return; }
     if (action === 'word') {
+      void speakSelection();
       const conversationId = crypto.randomUUID();
       const { record } = await saveWord({ conversationId, presentation:'dictionary' }); addVisualHighlight(record);
       display('单词释义', '正在按上下文解释…', selectedText, { conversationId, presentation:'dictionary' });
@@ -311,7 +312,6 @@
     if (!hit) return;
     event.preventDefault(); event.stopImmediatePropagation(); openMarkedRecord(hit.record);
   }, true);
-  restoreRecords().catch(() => {});
   let restoreTimer = 0;
   const observer = new MutationObserver((changes) => {
     if (!changes.some((change) => !host.contains(change.target))) return;
@@ -319,7 +319,11 @@
     if (location.href !== observedUrl) refreshIdentity();
     clearTimeout(restoreTimer); restoreTimer = setTimeout(() => restoreRecords().catch(() => {}), 1200);
   });
-  observer.observe(document.body, { childList:true, subtree:true, characterData:true });
+  const beginPageObservation = () => {
+    if (!document.body) return;
+    restoreRecords().catch(() => {});
+    observer.observe(document.body, { childList:true, subtree:true, characterData:true });
+  };
   const refreshIdentity = () => { if (location.href !== observedUrl) { observedUrl = location.href; documentId = `web:${location.href}`; documentTitle = clean(document.querySelector('meta[property="og:title"]')?.content || document.title || location.hostname); void sendToExtension({ type:'PAGE_CHANGED' }); void restoreRecords(); } };
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === 'local' && (changes.annotations || changes.vocabulary)) {
@@ -328,4 +332,6 @@
     }
   });
   addEventListener('popstate', refreshIdentity); addEventListener('hashchange', refreshIdentity);
+  if (document.body) beginPageObservation();
+  else document.addEventListener('DOMContentLoaded', beginPageObservation, { once:true });
 })();

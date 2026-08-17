@@ -17,6 +17,8 @@ test('record collections are mutated only by the background repository', () => {
 test('shared anchor code loads before content and reader code', () => {
   const manifest = JSON.parse(read('manifest.json'));
   assert.deepEqual(manifest.content_scripts[0].js, ['tts-core.js', 'anchor-core.js', 'translation-core.js', 'content.js']);
+  assert.equal(manifest.content_scripts[0].run_at, 'document_start');
+  assert.match(read('content.js'), /document\.addEventListener\('DOMContentLoaded', beginPageObservation/);
   assert.match(read('reader.html'), /anchor-core\.js"><\/script><script src="reader\.js/);
 });
 
