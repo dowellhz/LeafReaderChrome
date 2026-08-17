@@ -1,4 +1,181 @@
 const READER_URL = chrome.runtime.getURL('reader.html');
+const RECORD_STORAGE_KEYS = new Set(['annotations', 'vocabulary']);
+let storageMutationQueue = Promise.resolve();
+
+function enqueueStorageMutation(task) {
+  const result = storageMutationQueue.then(task, task);
+  storageMutationQueue = result.catch(() => {});
+  return result;
+}
+
+function storageRecordKey(value) {
+  const key = String(value || '');
+  if (!RECORD_STORAGE_KEYS.has(key)) throw new Error('Unsupported record collection.');
+  return key;
+}
+
+function objectValue(value, label) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be an object.`);
+  return value;
+}
+
+async function mutateStorage(mutation) {
+  const operation = String(mutation?.operation || '');
+  if (operation === 'addRecord') {
+    const key = storageRecordKey(mutation.key);
+    const record = objectValue(mutation.record, 'Record');
+    if (!record.id) throw new Error('Record id is required.');
+    const data = await chrome.storage.local.get(key);
+    const records = Array.isArray(data[key]) ? data[key] : [];
+    const index = records.findIndex((item) => item?.id === record.id);
+    if (index >= 0) records[index] = { ...records[index], ...record };
+    else records.push(record);
+    await chrome.storage.local.set({ [key]:records });
+    return { record, records };
+  }
+  if (operation === 'upsertAnnotationMarker') {
+    const record = objectValue(mutation.record, 'Annotation');
+    if (!record.id || !record.documentId || !record.kind) throw new Error('Annotation id, document, and kind are required.');
+    const { annotations:stored = [] } = await chrome.storage.local.get('annotations');
+    const annotations = Array.isArray(stored) ? stored : [];
+    const existing = annotations.find((item) => item?.kind === record.kind
+      && item?.documentId === record.documentId
+      && item?.anchor?.position === record.anchor?.position
+      && item?.anchor?.exact === record.anchor?.exact);
+    if (existing) Object.assign(existing, record, { id:existing.id, createdAt:existing.createdAt, updatedAt:Date.now() });
+    else annotations.push(record);
+    await chrome.storage.local.set({ annotations });
+    return { record:existing || record, records:annotations, created:!existing };
+  }
+  if (operation === 'patchRecord' || operation === 'toggleFavorite' || operation === 'reviewVocabulary' || operation === 'markVocabularyKnown') {
+    const key = operation.includes('Vocabulary') ? 'vocabulary' : storageRecordKey(mutation.key);
+    const id = String(mutation.id || '');
+    const data = await chrome.storage.local.get(key);
+    const records = Array.isArray(data[key]) ? data[key] : [];
+    const record = records.find((item) => item?.id === id);
+    if (!record) throw new Error('Record no longer exists.');
+    if (operation === 'patchRecord') {
+      const changes = { ...objectValue(mutation.changes, 'Record changes') };
+      delete changes.id;
+      Object.assign(record, changes, { updatedAt:Date.now() });
+    } else if (operation === 'toggleFavorite') {
+      record.favorite = !record.favorite;
+      record.updatedAt = Date.now();
+    } else if (operation === 'markVocabularyKnown') {
+      record.status = 'known';
+      record.dueAt = Date.now() + 30 * 86400000;
+      record.intervalDays = 30;
+      record.updatedAt = Date.now();
+    } else {
+      const correct = Boolean(mutation.correct);
+      record.reviewCount = Number(record.reviewCount || 0) + 1;
+      record.correctCount = Number(record.correctCount || 0) + (correct ? 1 : 0);
+      record.intervalDays = correct ? Math.min(90, Math.max(1, Math.round((record.intervalDays || 0) * 2.4) || 1)) : 1;
+      record.status = correct ? 'learning' : 'new';
+      record.dueAt = Date.now() + record.intervalDays * 86400000;
+      record.updatedAt = Date.now();
+    }
+    await chrome.storage.local.set({ [key]:records });
+    return { record, records };
+  }
+  if (operation === 'removeRecord') {
+    const key = storageRecordKey(mutation.key);
+    const data = await chrome.storage.local.get(key);
+    const records = (Array.isArray(data[key]) ? data[key] : []).filter((item) => item?.id !== mutation.id);
+    await chrome.storage.local.set({ [key]:records });
+    return { records };
+  }
+  if (operation === 'saveVocabulary') {
+    const candidate = objectValue(mutation.record, 'Vocabulary record');
+    if (!candidate.id || !candidate.lemma) throw new Error('Vocabulary id and lemma are required.');
+    const { vocabulary:stored = [] } = await chrome.storage.local.get('vocabulary');
+    const vocabulary = Array.isArray(stored) ? stored : [];
+    const existing = vocabulary.find((item) => item?.lemma === candidate.lemma);
+    if (!existing) {
+      candidate.documentIds = [...new Set([...(candidate.documentIds || []), candidate.documentId].filter(Boolean))];
+      candidate.contexts = [...new Set([...(candidate.contexts || []), candidate.context].filter(Boolean))].slice(-5);
+      candidate.anchors = { ...(candidate.anchors || {}), ...(candidate.documentId && candidate.anchor ? { [candidate.documentId]:candidate.anchor } : {}) };
+      candidate.occurrences = Math.max(1, Number(candidate.occurrences) || 1);
+      vocabulary.push(candidate);
+      await chrome.storage.local.set({ vocabulary });
+      return { record:candidate, records:vocabulary, created:true };
+    }
+    const documentIds = [...new Set([...(existing.documentIds || [existing.documentId].filter(Boolean)), candidate.documentId].filter(Boolean))];
+    const contexts = [...(existing.contexts || [existing.context].filter(Boolean)), candidate.context].filter(Boolean).slice(-5);
+    const anchors = { ...(existing.anchors || {}) };
+    if (candidate.documentId && candidate.anchor) anchors[candidate.documentId] = candidate.anchor;
+    Object.assign(existing, {
+      occurrences:Number(existing.occurrences || 1) + 1,
+      lastSeenAt:Date.now(),
+      updatedAt:Date.now(),
+      documentIds,
+      contexts,
+      anchors
+    });
+    await chrome.storage.local.set({ vocabulary });
+    return { record:existing, records:vocabulary, created:false };
+  }
+  if (operation === 'patchVocabularyByLemma') {
+    const lemma = String(mutation.lemma || '');
+    const { vocabulary:stored = [] } = await chrome.storage.local.get('vocabulary');
+    const vocabulary = Array.isArray(stored) ? stored : [];
+    const record = vocabulary.find((item) => item?.lemma === lemma);
+    if (!record) return { record:null, records:vocabulary };
+    const changes = { ...objectValue(mutation.changes, 'Vocabulary changes') };
+    delete changes.id;
+    Object.assign(record, changes, { updatedAt:Date.now() });
+    await chrome.storage.local.set({ vocabulary });
+    return { record, records:vocabulary };
+  }
+  if (operation === 'putConversation' || operation === 'deleteConversation') {
+    const key = String(mutation.key || '');
+    if (!key.startsWith('conversation:')) throw new Error('Invalid conversation key.');
+    const { aiConversations:stored = {} } = await chrome.storage.local.get('aiConversations');
+    const aiConversations = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    if (operation === 'putConversation') aiConversations[key] = objectValue(mutation.value, 'Conversation');
+    else delete aiConversations[key];
+    await chrome.storage.local.set({ aiConversations });
+    return { value:aiConversations[key] || null };
+  }
+  if (operation === 'upsertThread') {
+    const payload = objectValue(mutation.payload, 'Thread payload');
+    const documentId = String(payload.documentId || '');
+    const conversationId = String(payload.conversationId || '');
+    if (!documentId || !conversationId) throw new Error('Thread document and conversation ids are required.');
+    const key = `thread:${documentId}`;
+    const { sidePanelThreads:stored = {} } = await chrome.storage.local.get('sidePanelThreads');
+    const sidePanelThreads = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    const current = sidePanelThreads[key] || { documentId, documentTitle:payload.documentTitle, entries:[], scrollTop:0, updatedAt:0 };
+    const entry = { conversationId, title:payload.title, body:payload.body, quote:payload.quote, context:payload.context, documentId, documentTitle:payload.documentTitle, presentation:payload.presentation || 'chat', updatedAt:Date.now() };
+    const index = current.entries.findIndex((item) => item.conversationId === conversationId);
+    if (index >= 0) current.entries[index] = { ...current.entries[index], ...entry };
+    else current.entries.push(entry);
+    current.documentTitle = payload.documentTitle || current.documentTitle;
+    current.updatedAt = Date.now();
+    current.entries = current.entries.slice(-50);
+    sidePanelThreads[key] = current;
+    await chrome.storage.local.set({ sidePanelThreads });
+    return { thread:current };
+  }
+  if (operation === 'updateThreadScroll') {
+    const documentId = String(mutation.documentId || '');
+    const key = `thread:${documentId}`;
+    const { sidePanelThreads:stored = {} } = await chrome.storage.local.get('sidePanelThreads');
+    const sidePanelThreads = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    if (!sidePanelThreads[key]) return { thread:null };
+    sidePanelThreads[key].scrollTop = Math.max(0, Number(mutation.scrollTop) || 0);
+    await chrome.storage.local.set({ sidePanelThreads });
+    return { thread:sidePanelThreads[key] };
+  }
+  if (operation === 'replaceCollections') {
+    const values = objectValue(mutation.values, 'Replacement data');
+    const allowed = ['annotations', 'vocabulary', 'aiConversations', 'sidePanelThreads'];
+    const replacement = Object.fromEntries(allowed.filter((key) => Object.hasOwn(values, key)).map((key) => [key, values[key]]));
+    await chrome.storage.local.set(replacement);
+    return { ok:true };
+  }
+  throw new Error('Unsupported storage mutation.');
+}
 
 function chatEndpoint(endpoint) {
   const base = String(endpoint || '').trim().replace(/\/+$/, '');
@@ -157,6 +334,12 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
   });
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message.type === 'STORAGE_MUTATION') {
+    enqueueStorageMutation(() => mutateStorage(message.mutation))
+      .then((result) => respond({ ok:true, ...result }))
+      .catch((error) => respond({ ok:false, error:error.message }));
+    return true;
+  }
   if (message.type === 'AI_REQUEST' || message.type === 'AI_CHAT' || message.type === 'AI_TEST') {
     requestAI({ ...message, test: message.type === 'AI_TEST' }).then(respond);
     return true;

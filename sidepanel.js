@@ -1,5 +1,12 @@
 const panel = document.querySelector('#panel');
 const esc = (value) => String(value || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let renderGeneration = 0;
+const currentRender = (generation) => generation === renderGeneration;
+async function mutateStorage(mutation) {
+  const result = await chrome.runtime.sendMessage({ type:'STORAGE_MUTATION', mutation });
+  if (!result?.ok) throw new Error(result?.error || 'LeafReader could not save local data.');
+  return result;
+}
 function inlineMarkdown(value) {
   return esc(value)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
@@ -65,16 +72,16 @@ async function loadConversation(payload) {
   const messages = stalePending
     ? [{ role:'user', content:existing[0].content }, { role:'assistant', content:payload.body }]
     : [{ role:'user', content:payload.quote || 'Selected webpage text' }, { role:'assistant', content:payload.body }];
-  aiConversations[key] = { documentId:payload.documentId, documentTitle:payload.documentTitle, quote:payload.quote, context:payload.context, presentation:payload.presentation || 'chat', updatedAt:Date.now(), messages };
-  await chrome.storage.local.set({ aiConversations }); return messages;
+  const value = { documentId:payload.documentId, documentTitle:payload.documentTitle, quote:payload.quote, context:payload.context, presentation:payload.presentation || 'chat', updatedAt:Date.now(), messages };
+  await mutateStorage({ operation:'putConversation', key, value }); return messages;
 }
 async function askFollowUp(payload, question, history) {
   const key = conversationKey(payload); const next = [...history, { role:'user', content:question }];
   const result = await chrome.runtime.sendMessage({ type:'AI_CHAT', instruction:question, text:payload.quote || '', context:payload.context || '', history:next.slice(0, -1) });
   if (!result?.ok) throw new Error(result?.error || 'AI provider returned no response.');
-  const messages = [...next, { role:'assistant', content:result.content }]; const { aiConversations = {} } = await chrome.storage.local.get('aiConversations');
-  aiConversations[key] = { documentId:payload.documentId, documentTitle:payload.documentTitle, quote:payload.quote, context:payload.context, presentation:payload.presentation || 'chat', updatedAt:Date.now(), messages };
-  await chrome.storage.local.set({ aiConversations }); return messages;
+  const messages = [...next, { role:'assistant', content:result.content }];
+  const value = { documentId:payload.documentId, documentTitle:payload.documentTitle, quote:payload.quote, context:payload.context, presentation:payload.presentation || 'chat', updatedAt:Date.now(), messages };
+  await mutateStorage({ operation:'putConversation', key, value }); return messages;
 }
 function downloadConversation(payload, messages) {
   const content = [`# ${payload.documentTitle || 'LeafReader conversation'}`, '', `> ${payload.quote || ''}`, '', ...messages.map((message) => `## ${message.role === 'user' ? 'You' : 'LeafReader'}\n\n${message.content}`)].join('\n\n');
@@ -88,26 +95,13 @@ async function readThread(documentId) {
   return sidePanelThreads[key] || null;
 }
 async function upsertThread(payload) {
-  const key = threadKey(payload.documentId); if (!key) return null;
-  const { sidePanelThreads = {} } = await chrome.storage.local.get('sidePanelThreads');
-  const current = sidePanelThreads[key] || { documentId:payload.documentId, documentTitle:payload.documentTitle, entries:[], scrollTop:0, updatedAt:0 };
-  const entry = { conversationId:payload.conversationId, title:payload.title, body:payload.body, quote:payload.quote, context:payload.context, documentId:payload.documentId, documentTitle:payload.documentTitle, presentation:payload.presentation || 'chat', updatedAt:Date.now() };
-  const index = current.entries.findIndex((item) => item.conversationId === entry.conversationId);
-  if (index >= 0) current.entries[index] = { ...current.entries[index], ...entry };
-  else current.entries.push(entry);
-  current.documentTitle = payload.documentTitle || current.documentTitle;
-  current.updatedAt = Date.now();
-  // Keep page-local history practical while retaining enough context for a
-  // genuine scrolling reading trail.
-  current.entries = current.entries.slice(-50);
-  sidePanelThreads[key] = current;
-  await chrome.storage.local.set({ sidePanelThreads });
-  return current;
+  if (!threadKey(payload.documentId)) return null;
+  return (await mutateStorage({ operation:'upsertThread', payload })).thread;
 }
 function followUpMarkup() {
   return `<div class="composer"><form class="follow-up" id="followUp"><input id="followUpText" placeholder="Ask a follow-up about this text…"><button>Send</button></form><div class="conversation-tools"><button id="exportConversation">Export</button><button id="clearConversation">Clear</button></div></div>`;
 }
-function bindFollowUp(payload, messages) {
+function bindFollowUp(payload, messages, generation) {
   const form = document.querySelector('#followUp');
   if (form) form.onsubmit = async (event) => {
     event.preventDefault();
@@ -120,8 +114,10 @@ function bindFollowUp(payload, messages) {
     content?.append(pending); scrollThreadToEnd(content);
     try {
       const updated = await askFollowUp(payload, question, messages);
+      if (!currentRender(generation)) return;
       await render({ ...payload, body:updated.at(-1).content, conversationMessages:updated });
     } catch (error) {
+      if (!currentRender(generation)) return;
       const assistant = pending.querySelector('.chat-message.assistant');
       if (assistant) assistant.innerHTML = `<div class="label">LEAFREADER</div><div class="markdown"><p>${esc(error.message || 'The AI request failed.')}</p></div>`;
       input.disabled = false; submit.disabled = false; input.focus();
@@ -129,8 +125,8 @@ function bindFollowUp(payload, messages) {
   };
   document.querySelector('#exportConversation')?.addEventListener('click', () => downloadConversation(payload, messages));
   document.querySelector('#clearConversation')?.addEventListener('click', async () => {
-    const key = conversationKey(payload); const { aiConversations = {} } = await chrome.storage.local.get('aiConversations');
-    delete aiConversations[key]; await chrome.storage.local.set({ aiConversations });
+    const key = conversationKey(payload); await mutateStorage({ operation:'deleteConversation', key });
+    if (!currentRender(generation)) return;
     await render({ ...payload, body:'Conversation cleared. Ask a follow-up to start again.', conversationCleared:true });
   });
 }
@@ -138,11 +134,8 @@ let saveScrollTimer = 0;
 function persistThreadScroll(documentId, scrollTop) {
   clearTimeout(saveScrollTimer);
   saveScrollTimer = setTimeout(async () => {
-    const key = threadKey(documentId); if (!key) return;
-    const { sidePanelThreads = {} } = await chrome.storage.local.get('sidePanelThreads');
-    if (!sidePanelThreads[key]) return;
-    sidePanelThreads[key].scrollTop = scrollTop;
-    await chrome.storage.local.set({ sidePanelThreads });
+    if (!threadKey(documentId)) return;
+    await mutateStorage({ operation:'updateThreadScroll', documentId, scrollTop }).catch(() => {});
   }, 180);
 }
 function scrollThreadToEnd(content) {
@@ -163,9 +156,9 @@ function scrollThreadResponseToTop(content, conversationId) {
     requestAnimationFrame(() => { if (content.isConnected) content.scrollTop = Math.max(0, response.offsetTop - 19); });
   });
 }
-async function renderThread(payload, writePayload = true) {
+async function renderThread(payload, writePayload = true, generation = renderGeneration) {
   const thread = writePayload ? await upsertThread(payload) : await readThread(payload.documentId);
-  if (!thread?.entries?.length) return false;
+  if (!currentRender(generation) || !thread?.entries?.length) return false;
   const entries = thread.entries;
   const active = entries.find((entry) => entry.conversationId === payload.conversationId) || entries.at(-1);
   const rendered = await Promise.all(entries.map(async (entry) => {
@@ -173,55 +166,69 @@ async function renderThread(payload, writePayload = true) {
     return `<article class="thread-entry" data-thread-entry="${esc(entry.conversationId)}"><div class="entry-title">${esc(entry.title || 'LeafReader')}</div><div class="label">SELECTED TEXT</div><blockquote>${esc(entry.quote)}</blockquote><div class="entry-response" data-thread-response="${esc(entry.conversationId)}">${resultContent(entry, messages)}</div></article>`;
   }));
   const activeMessages = await loadConversation(active);
+  if (!currentRender(generation)) return false;
   panel.innerHTML = `<div class="panel-content"><h1>${esc(thread.documentTitle || payload.documentTitle || 'LeafReader')}</h1><div class="thread-list">${rendered.join('')}</div></div>${followUpMarkup()}`;
-  bindFollowUp(active, activeMessages);
+  bindFollowUp(active, activeMessages, generation);
   const content = panel.querySelector('.panel-content');
   content?.addEventListener('scroll', () => persistThreadScroll(thread.documentId, content.scrollTop), { passive:true });
   if (writePayload || payload.restoreThread) scrollThreadResponseToTop(content, active.conversationId);
   else requestAnimationFrame(() => { if (content) content.scrollTop = thread.scrollTop || 0; });
   return true;
 }
-async function render(payload) {
+async function renderPayload(payload, generation) {
   if (!payload) return;
   if (payload.mode === 'note') {
+    if (!currentRender(generation)) return;
     panel.innerHTML = `<div class="panel-content"><h1>${esc(payload.title || 'Add a note')}</h1><div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote><textarea id="note" placeholder="What do you want to remember?"></textarea><button class="primary" id="save">Save note</button></div>`;
     document.querySelector('#save').onclick = async () => {
       const note = document.querySelector('#note').value.trim();
-      const { annotations = [] } = await chrome.storage.local.get('annotations');
       const record = { id:`note:${crypto.randomUUID()}`, documentId:payload.documentId, documentTitle:payload.documentTitle, quote:payload.quote, context:payload.context, anchor:payload.anchor || null, note, kind:'note', favorite:false, createdAt:Date.now(), updatedAt:Date.now() };
-      annotations.push(record);
-      await chrome.storage.local.set({ annotations });
+      await mutateStorage({ operation:'addRecord', key:'annotations', record });
       await chrome.runtime.sendMessage({ type:'ANNOTATION_SAVED', tabId:payload.tabId, record });
+      if (!currentRender(generation)) return;
       panel.innerHTML = `<div class="panel-content"><h1>Note saved</h1><div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote><p class="message">${esc(note || 'Saved without a written note.')}</p></div>`;
     };
     return;
   }
   // Clicking a marker on the original webpage restores its existing
   // URL-scoped thread. It must not overwrite that entry with a placeholder.
-  if (payload.restoreThread && await renderThread(payload, false)) return;
-  if (isThreadPayload(payload) && await renderThread(payload, true)) return;
+  if (payload.restoreThread && await renderThread(payload, false, generation)) return;
+  if (!currentRender(generation)) return;
+  if (isThreadPayload(payload) && await renderThread(payload, true, generation)) return;
+  if (!currentRender(generation)) return;
   // The first click opens the native frame with a neutral Loading payload.
   // Do not wipe an existing page trail during that short hand-off.
-  if (payload.documentId && await renderThread(payload, false)) return;
+  if (payload.documentId && await renderThread(payload, false, generation)) return;
+  if (!currentRender(generation)) return;
   const messages = await loadConversation(payload);
+  if (!currentRender(generation)) return;
   panel.innerHTML = `<div class="panel-content"><h1>${esc(payload.title || 'LeafReader')}</h1>${payload.quote ? `<div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote>` : ''}${resultContent(payload, messages)}</div>${conversationKey(payload) ? followUpMarkup() : ''}`;
-  if (conversationKey(payload)) bindFollowUp(payload, messages);
+  if (conversationKey(payload)) bindFollowUp(payload, messages, generation);
+}
+async function render(payload) {
+  const generation = ++renderGeneration;
+  return renderPayload(payload, generation);
 }
 async function renderHistory() {
+  const generation = ++renderGeneration;
   const { aiConversations = {} } = await chrome.storage.local.get('aiConversations');
+  if (!currentRender(generation)) return;
   const entries = Object.entries(aiConversations).sort(([, left], [, right]) => (right.updatedAt || 0) - (left.updatedAt || 0));
   panel.innerHTML = entries.length ? `<div class="panel-content"><h1>AI conversations</h1><div class="conversation-list">${entries.map(([key, conversation]) => `<button data-conversation="${esc(key)}"><strong>${esc(conversation.documentTitle || 'Webpage')}</strong><span>${esc(conversation.quote || conversation.messages?.at(-1)?.content || '').slice(0, 105)}</span><small>${new Date(conversation.updatedAt || 0).toLocaleString()}</small></button>`).join('')}</div></div>` : `<div class="panel-content"><div class="empty"><b>☘</b><h1>No conversations yet</h1><p>Use Translate, Dictionary, or AI on a webpage, then continue the conversation here.</p></div></div>`;
   panel.querySelectorAll('[data-conversation]').forEach((button) => button.onclick = () => { const key = button.dataset.conversation; const conversation = aiConversations[key]; if (!conversation) return; const latest = conversation.messages?.filter((message) => message.role === 'assistant').at(-1)?.content || ''; void render({ title:'LeafReader AI', body:latest, documentId:conversation.documentId, documentTitle:conversation.documentTitle, quote:conversation.quote, context:conversation.context, presentation:conversation.presentation, conversationId:key.replace(/^conversation:/, '') }); });
 }
-function renderEmpty() { panel.innerHTML = `<div class="panel-content"><div class="empty"><b>☘</b><h1>Ready to read</h1><p>Select text on the webpage to translate, look up, annotate, or ask AI.</p></div></div>`; }
+function renderEmpty(generation = renderGeneration) { if (currentRender(generation)) panel.innerHTML = `<div class="panel-content"><div class="empty"><b>☘</b><h1>Ready to read</h1><p>Select text on the webpage to translate, look up, annotate, or ask AI.</p></div></div>`; }
 async function renderActivePageThread() {
+  const generation = ++renderGeneration;
   const [tab] = await chrome.tabs.query({ active:true, currentWindow:true });
-  if (!/^https?:/i.test(tab?.url || '')) { renderEmpty(); return; }
+  if (!currentRender(generation)) return;
+  if (!/^https?:/i.test(tab?.url || '')) { renderEmpty(generation); return; }
   const documentId = `web:${tab.url}`;
   const thread = await readThread(documentId);
-  if (!thread?.entries?.length) { renderEmpty(); return; }
+  if (!currentRender(generation)) return;
+  if (!thread?.entries?.length) { renderEmpty(generation); return; }
   const latest = thread.entries.at(-1);
-  await renderThread({ ...latest, documentId, documentTitle:tab.title || thread.documentTitle }, false);
+  await renderThread({ ...latest, documentId, documentTitle:tab.title || thread.documentTitle }, false, generation);
 }
 async function load() { const { leafReaderSidePanel } = await chrome.storage.session.get('leafReaderSidePanel'); if (leafReaderSidePanel?.payload) await render(leafReaderSidePanel.payload); else await renderActivePageThread(); }
 chrome.storage.session.onChanged.addListener((changes) => { if (!changes.leafReaderSidePanel) return; if (changes.leafReaderSidePanel.newValue?.payload) void render(changes.leafReaderSidePanel.newValue.payload); else void renderActivePageThread(); });

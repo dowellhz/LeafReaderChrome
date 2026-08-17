@@ -1,5 +1,6 @@
 (() => {
   const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const preferredTtsLanguage = LeafTts.preferredLanguage;
   const lemmaFor = (value) => {
     const word = clean(value).toLocaleLowerCase().replace(/^[^\p{L}]+|[^\p{L}'-]+$/gu, '');
     if (!/^[a-z][a-z'-]*$/i.test(word)) return word;
@@ -23,6 +24,11 @@
   const localStorageCall = async (callback) => {
     if (!extensionContextIsAlive()) throw new Error('LeafReader was updated. Refresh this webpage, then try again.');
     return callback();
+  };
+  const mutateStorage = async (mutation) => {
+    const result = await sendToExtension({ type:'STORAGE_MUTATION', mutation });
+    if (!result?.ok) throw new Error(result?.error || 'LeafReader could not save local data.');
+    return result;
   };
   const ignored = 'script,style,noscript,nav,aside,footer,header,form,button,iframe,svg,canvas,[aria-hidden="true"],.advertisement,.ads,.ad';
   const visibleText = (element) => clean(element?.innerText || element?.textContent);
@@ -68,59 +74,44 @@
   let activeHighlight = null;
   const highlightSets = new Map();
   let paintedRanges = [];
+  let ttsPreferences = { voices: {}, rate: 1, pitch: 1, localOnly: true };
+  let contentVoicesPromise = null;
+  const contentTtsState = LeafTts.createPlaybackState();
+  void chrome.storage.local.get('ttsPreferences').then((data) => { if (data.ttsPreferences) ttsPreferences = { ...ttsPreferences, ...data.ttsPreferences, voices:{ ...(data.ttsPreferences.voices || {}) } }; });
+  chrome.storage.onChanged.addListener((changes, area) => { if (area === 'local' && changes.ttsPreferences?.newValue) ttsPreferences = { ...ttsPreferences, ...changes.ttsPreferences.newValue, voices:{ ...(changes.ttsPreferences.newValue.voices || {}) } }; });
   const host = document.createElement('div');
   host.id = 'leafreader-chrome-root';
   const shadow = host.attachShadow({ mode: 'closed' });
   shadow.innerHTML = `<style>
-    :host{all:initial}.leaf-root{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#26342d}.toolbar{position:fixed;display:flex;align-items:center;gap:2px;padding:4px;background:#293a31;border:1px solid #435649;border-radius:9px;box-shadow:0 8px 26px #0005;z-index:2147483647}.toolbar[hidden],.side[hidden]{display:none}.toolbar button{appearance:none;border:0;border-radius:6px;background:transparent;color:#fff;padding:7px 9px;white-space:nowrap;font:600 12px/1.2 inherit;cursor:pointer}.toolbar button:hover{background:#ffffff1f}.toolbar .star{color:#f5df83}.side{position:fixed;z-index:2147483647;right:18px;top:18px;width:min(390px,calc(100vw - 36px));height:min(680px,calc(100vh - 36px));display:flex;flex-direction:column;background:#fbfaf5;border:1px solid #d8ddd3;border-radius:13px;box-shadow:0 16px 55px #14201840;overflow:hidden}.side header{display:flex;align-items:center;gap:8px;padding:14px 15px;background:#edf2eb;border-bottom:1px solid #d8ddd3}.leaf{color:#3e7256;font-size:21px}.side header strong{font-family:ui-serif,Georgia,serif;font-size:17px;letter-spacing:-.2px}.side header span{font-size:11px;color:#718078;margin-left:auto}.side header button{appearance:none;border:0;background:transparent;border-radius:6px;color:#58685d;font-size:18px;cursor:pointer;padding:3px 6px}.side header button:hover{background:#dce8de}.content{padding:17px;overflow:auto;line-height:1.58;font-size:14px;white-space:pre-wrap}.content h3{font-family:ui-serif,Georgia,serif;font-size:21px;margin:0 0 11px}.content .label{font-size:10px;letter-spacing:1.1px;color:#3e7256;font-weight:700}.content blockquote{margin:11px 0;padding:8px 11px;border-left:3px solid #e2c65e;background:#f5f0df;color:#4c594e;font-family:ui-serif,Georgia,serif}.content textarea{box-sizing:border-box;display:block;width:100%;min-height:118px;margin:12px 0;border:1px solid #d6d9d0;border-radius:8px;padding:10px;resize:vertical;font:inherit}.primary{appearance:none;border:0;border-radius:7px;padding:9px 12px;background:#3e7256;color:#fff;font:650 13px inherit;cursor:pointer}.quiet{appearance:none;border:0;background:transparent;color:#3e7256;font:600 13px inherit;cursor:pointer}.footer{padding:10px 14px;border-top:1px solid #e0e2da;color:#78867c;font-size:11px}.footer button{float:right;border:0;background:none;color:#3e7256;font:600 11px inherit;cursor:pointer}
-  </style><div class="leaf-root"><div class="toolbar" hidden><button data-action="translate">翻译</button><button data-action="dictionary">词典</button><button data-action="word">保存单词</button><button data-action="highlight">高亮</button><button data-action="note">笔记</button><button data-action="speak">朗读</button><button data-action="ai" class="star">✦ AI</button></div><aside class="side" hidden><header><b class="leaf">◒</b><strong>LeafReader</strong><span>阅读助手</span><button data-close title="Close">×</button></header><section class="content"></section><footer class="footer">内容仅保存在本机 <button data-open-reader>打开阅读模式 →</button></footer></aside></div>`;
+    :host{all:initial}.leaf-root{font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#26342d}.toolbar{position:fixed;display:flex;align-items:center;gap:2px;padding:4px;background:#293a31;border:1px solid #435649;border-radius:9px;box-shadow:0 8px 26px #0005;z-index:2147483647}.toolbar[hidden],.side[hidden],.tts-player[hidden]{display:none}.toolbar button{appearance:none;border:0;border-radius:6px;background:transparent;color:#fff;padding:7px 9px;white-space:nowrap;font:600 12px/1.2 inherit;cursor:pointer}.toolbar button:hover{background:#ffffff1f}.toolbar .star{color:#f5df83}.side{position:fixed;z-index:2147483647;right:18px;top:18px;width:min(390px,calc(100vw - 36px));height:min(680px,calc(100vh - 36px));display:flex;flex-direction:column;background:#fbfaf5;border:1px solid #d8ddd3;border-radius:13px;box-shadow:0 16px 55px #14201840;overflow:hidden}.side header{display:flex;align-items:center;gap:8px;padding:14px 15px;background:#edf2eb;border-bottom:1px solid #d8ddd3}.leaf{color:#3e7256;font-size:21px}.side header strong{font-family:ui-serif,Georgia,serif;font-size:17px;letter-spacing:-.2px}.side header span{font-size:11px;color:#718078;margin-left:auto}.side header button{appearance:none;border:0;background:transparent;border-radius:6px;color:#58685d;font-size:18px;cursor:pointer;padding:3px 6px}.side header button:hover{background:#dce8de}.content{padding:17px;overflow:auto;line-height:1.58;font-size:14px;white-space:pre-wrap}.content h3{font-family:ui-serif,Georgia,serif;font-size:21px;margin:0 0 11px}.content .label{font-size:10px;letter-spacing:1.1px;color:#3e7256;font-weight:700}.content blockquote{margin:11px 0;padding:8px 11px;border-left:3px solid #e2c65e;background:#f5f0df;color:#4c594e;font-family:ui-serif,Georgia,serif}.content textarea{box-sizing:border-box;display:block;width:100%;min-height:118px;margin:12px 0;border:1px solid #d6d9d0;border-radius:8px;padding:10px;resize:vertical;font:inherit}.primary{appearance:none;border:0;border-radius:7px;padding:9px 12px;background:#3e7256;color:#fff;font:650 13px inherit;cursor:pointer}.quiet{appearance:none;border:0;background:transparent;color:#3e7256;font:600 13px inherit;cursor:pointer}.footer{padding:10px 14px;border-top:1px solid #e0e2da;color:#78867c;font-size:11px}.footer button{float:right;border:0;background:none;color:#3e7256;font:600 11px inherit;cursor:pointer}.tts-player{position:fixed;left:18px;bottom:18px;z-index:2147483647;display:flex;align-items:center;gap:8px;padding:7px 9px 7px 12px;border:1px solid #435649;border-radius:10px;background:#293a31;color:#fff;box-shadow:0 8px 26px #0005;font:600 12px/1.2 inherit}.tts-player button{appearance:none;border:0;border-radius:6px;background:#ffffff18;color:#fff;padding:6px 9px;font:600 12px/1 inherit;cursor:pointer}.tts-player button:hover{background:#ffffff2c}
+  </style><div class="leaf-root"><div class="toolbar" hidden><button data-action="translate">翻译</button><button data-action="dictionary">词典</button><button data-action="word">保存单词</button><button data-action="highlight">高亮</button><button data-action="note">笔记</button><button data-action="speak">朗读</button><button data-action="ai" class="star">✦ AI</button></div><aside class="side" hidden><header><b class="leaf">◒</b><strong>LeafReader</strong><span>阅读助手</span><button data-close title="Close">×</button></header><section class="content"></section><footer class="footer">内容仅保存在本机 <button data-open-reader>打开阅读模式 →</button></footer></aside><div class="tts-player" hidden role="status" aria-live="polite"><span data-tts-status>正在朗读</span><button data-tts-toggle>暂停</button><button data-tts-stop title="停止朗读">停止</button></div></div>`;
   document.documentElement.append(host);
   const toolbar = shadow.querySelector('.toolbar');
   const side = shadow.querySelector('.side');
   const panel = shadow.querySelector('.content');
+  const ttsPlayer = shadow.querySelector('.tts-player');
+  const ttsStatus = shadow.querySelector('[data-tts-status]');
+  const ttsToggle = shadow.querySelector('[data-tts-toggle]');
   // Enabling is silent: it does not display the side panel. Doing it once on
   // page readiness removes the first-click race between a selection action and
   // Chrome's tab-specific Side Panel setup.
   void sendToExtension({ type:'PREPARE_SIDE_PANEL' });
 
   const excludedText = 'script,style,noscript,textarea,input,select,option,[contenteditable="true"],#leafreader-chrome-root';
+  let textIndexVersion = 0;
+  let cachedTextIndex = null;
+  let cachedTextIndexVersion = -1;
   const textIndex = () => {
-    const nodes = []; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode(node) { return node.parentElement?.closest(excludedText) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT; } });
-    let node; while ((node = walker.nextNode())) nodes.push(node);
-    const chars = []; const map = []; let whitespace = false;
-    for (const textNode of nodes) for (let offset = 0; offset < textNode.nodeValue.length; offset += 1) {
-      const character = textNode.nodeValue[offset];
-      if (/\s/.test(character)) { if (!whitespace) { chars.push(' '); map.push({ node: textNode, offset }); whitespace = true; } }
-      else { chars.push(character); map.push({ node: textNode, offset }); whitespace = false; }
+    if (!cachedTextIndex || cachedTextIndexVersion !== textIndexVersion) {
+      cachedTextIndex = LeafAnchor.buildTextIndex(document.body, excludedText);
+      cachedTextIndexVersion = textIndexVersion;
     }
-    return { text: chars.join(''), map };
-  };
-  const boundaryPosition = (index, node, offset, end = false) => {
-    if (node?.nodeType !== Node.TEXT_NODE) return -1;
-    if (end) { for (let i = index.map.length - 1; i >= 0; i -= 1) if (index.map[i].node === node && index.map[i].offset < offset) return i + 1; }
-    else for (let i = 0; i < index.map.length; i += 1) if (index.map[i].node === node && index.map[i].offset >= offset) return i;
-    return -1;
+    return cachedTextIndex;
   };
   const createAnchor = (range) => {
-    const exact = clean(range?.toString()); if (!exact) return null;
-    const index = textIndex(); let start = boundaryPosition(index, range.startContainer, range.startOffset); let end = boundaryPosition(index, range.endContainer, range.endOffset, true);
-    if (start < 0 || end <= start) { start = index.text.toLocaleLowerCase().indexOf(exact.toLocaleLowerCase()); end = start < 0 ? -1 : start + exact.length; }
-    if (start < 0) return { exact, prefix: '', suffix: '', position: -1 };
-    return { exact, prefix: index.text.slice(Math.max(0, start - 80), start), suffix: index.text.slice(end, end + 80), position: start };
+    return LeafAnchor.createAnchor(range, textIndex());
   };
-  const rangeForAnchor = (anchor) => {
-    const exact = clean(anchor?.exact); if (!exact) return null;
-    const index = textIndex(); const haystack = index.text.toLocaleLowerCase(); const needle = exact.toLocaleLowerCase(); const candidates = []; let at = haystack.indexOf(needle);
-    while (at >= 0) { candidates.push(at); at = haystack.indexOf(needle, at + Math.max(1, needle.length)); }
-    if (!candidates.length) return null;
-    const best = candidates.sort((left, right) => {
-      const score = (position) => (anchor.prefix && index.text.slice(Math.max(0, position - anchor.prefix.length), position) === anchor.prefix ? 10000 : 0) + (anchor.suffix && index.text.slice(position + exact.length, position + exact.length + anchor.suffix.length) === anchor.suffix ? 10000 : 0) - Math.abs(position - Number(anchor.position || 0));
-      return score(right) - score(left);
-    })[0];
-    const first = index.map[best]; const last = index.map[best + exact.length - 1];
-    if (!first || !last) return null;
-    const range = document.createRange(); range.setStart(first.node, first.offset); range.setEnd(last.node, last.offset + 1); return range;
-  };
+  const rangeForAnchor = (anchor, index = textIndex()) => LeafAnchor.rangeForAnchor(anchor, index, document);
   const paintRange = (record, range) => {
     if (!range || !window.CSS?.highlights || !window.Highlight) return;
     const name = {
@@ -133,34 +124,36 @@
     const set = highlightSets.get(name) || new Highlight(); set.add(range); highlightSets.set(name, set); window.CSS.highlights.set(name, set);
     paintedRanges.push({ record, range });
   };
-  const paintRecord = (record) => { if (record?.documentId === documentId) paintRange(record, rangeForAnchor(record.anchor)); };
+  const recordBelongsToDocument = (record) => record?.documentId === documentId || record?.documentIds?.includes(documentId);
+  const recordAnchor = (record) => record?.anchors?.[documentId] || record?.anchor || (record?.quote || record?.word ? { exact:record.quote || record.word, position:record?.locator?.position || 0 } : null);
+  const paintRecord = (record, index = textIndex()) => { if (recordBelongsToDocument(record)) paintRange(record, rangeForAnchor(recordAnchor(record), index)); };
+  let restoreGeneration = 0;
+  const yieldForPainting = () => new Promise((resolve) => (globalThis.requestIdleCallback ? requestIdleCallback(resolve, { timeout:120 }) : setTimeout(resolve, 0)));
   const restoreRecords = async () => {
     if (!extensionContextIsAlive()) return;
+    const generation = ++restoreGeneration;
     for (const name of highlightSets.keys()) window.CSS?.highlights?.delete(name);
     highlightSets.clear();
     paintedRanges = [];
     const { annotations = [], vocabulary = [] } = await chrome.storage.local.get(['annotations', 'vocabulary']);
-    [...annotations, ...vocabulary].filter((record) => record.documentId === documentId).forEach(paintRecord);
+    if (generation !== restoreGeneration) return;
+    const index = textIndex();
+    const records = [...annotations, ...vocabulary].filter(recordBelongsToDocument);
+    for (let offset = 0; offset < records.length; offset += 40) {
+      if (generation !== restoreGeneration) return;
+      records.slice(offset, offset + 40).forEach((record) => paintRecord(record, index));
+      if (offset + 40 < records.length) await yieldForPainting();
+    }
   };
   const display = (title, body, quote = '', extra = {}) => sendToExtension({ type: 'OPEN_LEAF_SIDEPANEL', payload: { mode: 'result', title, body, quote, documentId, documentTitle, context: selectedContext, ...extra } });
   const clearSelection = () => { window.getSelection()?.removeAllRanges(); toolbar.hidden = true; };
-  const save = async (key, value) => localStorageCall(async () => { const current = (await chrome.storage.local.get(key))[key] || []; current.push(value); await chrome.storage.local.set({ [key]: current }); });
+  const save = async (key, value) => localStorageCall(() => mutateStorage({ operation:'addRecord', key, record:value }));
   const saveWord = async () => localStorageCall(async () => {
-    const { vocabulary = [] } = await chrome.storage.local.get('vocabulary'); const lemma = lemmaFor(selectedText); const now = Date.now();
-    const existing = vocabulary.find((item) => item.lemma === lemma);
-    if (existing) {
-      existing.occurrences = Number(existing.occurrences || 1) + 1; existing.lastSeenAt = now; existing.updatedAt = now;
-      existing.documentIds = [...new Set([...(existing.documentIds || [existing.documentId].filter(Boolean)), documentId])];
-      existing.contexts = [...(existing.contexts || [existing.context].filter(Boolean)), selectedContext].filter(Boolean).slice(-5);
-      await chrome.storage.local.set({ vocabulary }); return { record: existing, created: false };
-    }
-    const record = createRecord('word', { word:selectedText.slice(0,160), lemma, definition:'', occurrences:1, documentIds:[documentId], contexts:[selectedContext], status:'new', intervalDays:0, dueAt:now, reviewCount:0, correctCount:0, lastSeenAt:now });
-    vocabulary.push(record); await chrome.storage.local.set({ vocabulary }); return { record, created: true };
+    const lemma = lemmaFor(selectedText); const now = Date.now();
+    const record = createRecord('word', { word:selectedText.slice(0,160), lemma, definition:'', occurrences:1, documentIds:[documentId], contexts:[selectedContext], anchors:{ [documentId]:createAnchor(selectedRange) }, status:'new', intervalDays:0, dueAt:now, reviewCount:0, correctCount:0, lastSeenAt:now });
+    return mutateStorage({ operation:'saveVocabulary', record });
   });
-  const saveDefinition = async (word, definition) => localStorageCall(async () => {
-    const { vocabulary = [] } = await chrome.storage.local.get('vocabulary'); const item = vocabulary.find((candidate) => candidate.lemma === lemmaFor(word));
-    if (!item) return; item.definition = definition; item.updatedAt = Date.now(); await chrome.storage.local.set({ vocabulary });
-  });
+  const saveDefinition = async (word, definition) => localStorageCall(() => mutateStorage({ operation:'patchVocabularyByLemma', lemma:lemmaFor(word), changes:{ definition } }));
   const createRecord = (kind, extras = {}) => ({ id: `${kind}:${crypto.randomUUID()}`, documentId, documentTitle, quote: selectedText, context: selectedContext, anchor: createAnchor(selectedRange), kind, createdAt: Date.now(), updatedAt: Date.now(), favorite: false, ...extras });
   const showToolbar = () => {
     const selection = window.getSelection(); const text = clean(selection?.toString());
@@ -185,16 +178,40 @@
     if (!result?.ok) throw new Error(result?.error || 'Extension background returned no response.');
     return result.content;
   };
+  const voiceForLanguage = (language) => {
+    const key = LeafTts.languageKey(language); return LeafTts.selectVoice(speechSynthesis.getVoices(), language, ttsPreferences.voices?.[key], ttsPreferences.localOnly);
+  };
+  const ensureTtsVoices = (timeoutMs = 1800) => {
+    if (speechSynthesis.getVoices().length) return Promise.resolve(speechSynthesis.getVoices());
+    if (!contentVoicesPromise) contentVoicesPromise = new Promise((resolve) => {
+      let timer = 0;
+      const finish = () => { clearTimeout(timer); speechSynthesis.removeEventListener('voiceschanged', changed); contentVoicesPromise = null; resolve(speechSynthesis.getVoices()); };
+      const changed = () => { if (speechSynthesis.getVoices().length) finish(); };
+      speechSynthesis.addEventListener('voiceschanged', changed); timer = setTimeout(finish, timeoutMs);
+    });
+    return contentVoicesPromise;
+  };
+  const selectionSpeechChunks = (text) => LeafTts.chunkText(text, 320);
+  const stopSelectionSpeech = () => { const generation = contentTtsState.cancel(); speechSynthesis.cancel(); ttsPlayer.hidden = true; ttsToggle.hidden = false; ttsToggle.textContent = '暂停'; return generation; };
+  const toggleSelectionSpeech = () => { if (!contentTtsState.remaining) return; if (speechSynthesis.paused || contentTtsState.paused) { contentTtsState.resume(); speechSynthesis.resume(); ttsToggle.textContent = '暂停'; ttsStatus.textContent = '正在朗读'; } else { contentTtsState.pause(); speechSynthesis.pause(); ttsToggle.textContent = '继续'; ttsStatus.textContent = '已暂停'; } };
+  const speakSelection = async () => {
+    const text = selectedText; const waitingGeneration = stopSelectionSpeech(); await ensureTtsVoices(); if (!contentTtsState.isCurrent(waitingGeneration)) return { ok:false, canceled:true };
+    const chunks = selectionSpeechChunks(text); const queue = chunks.map((chunk) => ({ ...chunk, spokenText:LeafTts.speechText(chunk.text, chunk.language), voice:voiceForLanguage(chunk.language) })).filter((item) => item.spokenText); const missing = queue.find((item) => !item.voice);
+    if (ttsPreferences.localOnly && missing) return { ok:false, language:missing.language };
+    if (!queue.length) return { ok:false }; const generation = contentTtsState.begin(queue.length);
+    ttsPlayer.hidden = false; ttsToggle.hidden = false; ttsStatus.textContent = '正在朗读'; ttsToggle.textContent = '暂停';
+    const finished = () => { const result = contentTtsState.complete(generation); if (result.accepted && result.done) ttsPlayer.hidden = true; };
+    for (const item of queue) { const utterance = new SpeechSynthesisUtterance(item.spokenText); utterance.lang = item.voice?.lang || item.language; utterance.rate = Math.min(1.5, Math.max(.7, Number(ttsPreferences.rate) || 1)); utterance.pitch = Math.min(1.2, Math.max(.8, Number(ttsPreferences.pitch) || 1)); if (item.voice) utterance.voice = item.voice; utterance.onend = finished; utterance.onerror = (event) => { if (!contentTtsState.isCurrent(generation)) return; if (['interrupted','canceled'].includes(event.error)) { finished(); return; } const failureGeneration = contentTtsState.fail(generation); speechSynthesis.cancel(); ttsStatus.textContent = `朗读错误：${event.error || 'unknown'}`; ttsToggle.hidden = true; ttsPlayer.hidden = false; setTimeout(() => { if (contentTtsState.isCurrent(failureGeneration)) ttsPlayer.hidden = true; }, 4000); }; speechSynthesis.speak(utterance); }
+    return { ok:Boolean(queue.length) };
+  };
+  ttsToggle.onclick = toggleSelectionSpeech;
+  shadow.querySelector('[data-tts-stop]').onclick = stopSelectionSpeech;
+  addEventListener('pagehide', stopSelectionSpeech);
   const addVisualHighlight = (record) => { paintRange(record, selectedRange); activeHighlight = record; };
   const saveSelectionMarker = async (kind, extras = {}) => localStorageCall(async () => {
-    const { annotations = [] } = await chrome.storage.local.get('annotations');
     const anchor = createAnchor(selectedRange);
-    // Retrying the same action should update one marker, not gradually stack
-    // identical highlights over the exact same words.
-    const existing = annotations.find((record) => record.kind === kind && record.documentId === documentId && record.anchor?.position === anchor?.position && record.anchor?.exact === anchor?.exact);
-    if (existing) { Object.assign(existing, extras, { updatedAt:Date.now() }); await chrome.storage.local.set({ annotations }); return existing; }
     const record = createRecord(kind, { anchor, favorite: false, ...extras });
-    annotations.push(record); await chrome.storage.local.set({ annotations }); return record;
+    return (await mutateStorage({ operation:'upsertAnnotationMarker', record })).record;
   });
   async function handleAction(action) {
     if (!selectedText) return;
@@ -205,7 +222,7 @@
     if (action === 'highlight') { const record=createRecord('highlight'); await save('annotations', record); addVisualHighlight(record); display('Highlight saved', 'This highlight is saved to your LeafReader notes.', selectedText); clearSelection(); return; }
     if (action === 'note') { sendToExtension({ type:'OPEN_LEAF_SIDEPANEL', payload:{ mode:'note', title:'Add a note', quote:selectedText, documentId, documentTitle, context:selectedContext, anchor:createAnchor(selectedRange) } }); clearSelection(); return; }
     if (action === 'word') { const { record, created } = await saveWord(); addVisualHighlight(record); display(created ? 'Saved to vocabulary' : 'Vocabulary updated', created ? '已加入个人词库。点击“词典”可用 AI 补全中文释义；词条会在复习页按间隔重复出现。' : `已记录第 ${record.occurrences} 次出现，并保留新的阅读上下文。`, selectedText); clearSelection(); return; }
-    if (action === 'speak') { speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(selectedText);utterance.lang=/[\u3400-\u9fff]/.test(selectedText)?'zh-CN':'en-US';speechSynthesis.speak(utterance);display('Read aloud','LeafReader is reading the selected text aloud.',selectedText);clearSelection();return; }
+    if (action === 'speak') { const spoken = await speakSelection(); if (spoken.canceled) return; display(spoken.ok ? 'Read aloud' : 'Local voice unavailable', spoken.ok ? 'LeafReader is reading the selected text aloud. Use the floating controls to pause, continue, or stop.' : `No installed local ${spoken.language || ''} voice is available. Install one in the operating system, or allow online voices in reading settings.`, selectedText);clearSelection();return; }
     if (action === 'dictionary') {
       const conversationId = crypto.randomUUID(); const marker = await saveSelectionMarker('dictionary', { conversationId, presentation:'dictionary' }); addVisualHighlight(marker);
       display('单词释义', '正在按上下文解释…', selectedText, { conversationId, presentation:'dictionary' });
@@ -258,10 +275,17 @@
   let restoreTimer = 0;
   const observer = new MutationObserver((changes) => {
     if (!changes.some((change) => !host.contains(change.target))) return;
+    textIndexVersion += 1;
     if (location.href !== observedUrl) refreshIdentity();
-    clearTimeout(restoreTimer); restoreTimer = setTimeout(() => restoreRecords().catch(() => {}), 900);
+    clearTimeout(restoreTimer); restoreTimer = setTimeout(() => restoreRecords().catch(() => {}), 1200);
   });
   observer.observe(document.body, { childList:true, subtree:true, characterData:true });
   const refreshIdentity = () => { if (location.href !== observedUrl) { observedUrl = location.href; documentId = `web:${location.href}`; documentTitle = clean(document.querySelector('meta[property="og:title"]')?.content || document.title || location.hostname); void sendToExtension({ type:'PAGE_CHANGED' }); void restoreRecords(); } };
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === 'local' && (changes.annotations || changes.vocabulary)) {
+      clearTimeout(restoreTimer);
+      restoreTimer = setTimeout(() => restoreRecords().catch(() => {}), 120);
+    }
+  });
   addEventListener('popstate', refreshIdentity); addEventListener('hashchange', refreshIdentity);
 })();

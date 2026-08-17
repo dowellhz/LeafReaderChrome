@@ -20,3 +20,11 @@ A Manifest V3 Chrome extension inspired by Leaf Reader’s focused reading workf
 4. Open any article and click the LeafReader toolbar button.
 
 Captured webpages are stored in the browser’s IndexedDB. Notes, vocabulary, and settings are stored in Chrome extension local storage. The optional AI capability sends text only after you configure a provider in Settings. PDF, EPUB, and DOCX are intentionally outside this extension’s scope.
+
+## Development checks
+
+The shared TTS language, chunking, voice-selection, normalization, and playback-state logic has dependency-free Node tests:
+
+```sh
+npm test
+```
