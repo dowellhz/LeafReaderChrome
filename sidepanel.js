@@ -1,5 +1,7 @@
 const panel = document.querySelector('#panel');
+const panelTitle = document.querySelector('#panelTitle');
 const esc = (value) => String(value || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const setPanelTitle = (value) => { panelTitle.textContent = !value || value === 'LeafReader' ? 'Reading companion' : value; panelTitle.title = panelTitle.textContent; };
 let renderGeneration = 0;
 const currentRender = (generation) => generation === renderGeneration;
 async function mutateStorage(mutation) {
@@ -167,7 +169,8 @@ async function renderThread(payload, writePayload = true, generation = renderGen
   }));
   const activeMessages = await loadConversation(active);
   if (!currentRender(generation)) return false;
-  panel.innerHTML = `<div class="panel-content"><h1>${esc(thread.documentTitle || payload.documentTitle || 'LeafReader')}</h1><div class="thread-list">${rendered.join('')}</div></div>${followUpMarkup()}`;
+  setPanelTitle(thread.documentTitle || payload.documentTitle || 'LeafReader');
+  panel.innerHTML = `<div class="panel-content"><div class="thread-list">${rendered.join('')}</div></div>${followUpMarkup()}`;
   bindFollowUp(active, activeMessages, generation);
   const content = panel.querySelector('.panel-content');
   content?.addEventListener('scroll', () => persistThreadScroll(thread.documentId, content.scrollTop), { passive:true });
@@ -179,14 +182,16 @@ async function renderPayload(payload, generation) {
   if (!payload) return;
   if (payload.mode === 'note') {
     if (!currentRender(generation)) return;
-    panel.innerHTML = `<div class="panel-content"><h1>${esc(payload.title || 'Add a note')}</h1><div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote><textarea id="note" placeholder="What do you want to remember?"></textarea><button class="primary" id="save">Save note</button></div>`;
+    setPanelTitle(payload.title || 'Add a note');
+    panel.innerHTML = `<div class="panel-content"><div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote><textarea id="note" placeholder="What do you want to remember?"></textarea><button class="primary" id="save">Save note</button></div>`;
     document.querySelector('#save').onclick = async () => {
       const note = document.querySelector('#note').value.trim();
       const record = { id:`note:${crypto.randomUUID()}`, documentId:payload.documentId, documentTitle:payload.documentTitle, quote:payload.quote, context:payload.context, anchor:payload.anchor || null, note, kind:'note', favorite:false, createdAt:Date.now(), updatedAt:Date.now() };
       await mutateStorage({ operation:'addRecord', key:'annotations', record });
       await chrome.runtime.sendMessage({ type:'ANNOTATION_SAVED', tabId:payload.tabId, record });
       if (!currentRender(generation)) return;
-      panel.innerHTML = `<div class="panel-content"><h1>Note saved</h1><div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote><p class="message">${esc(note || 'Saved without a written note.')}</p></div>`;
+      setPanelTitle('Note saved');
+      panel.innerHTML = `<div class="panel-content"><div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote><p class="message">${esc(note || 'Saved without a written note.')}</p></div>`;
     };
     return;
   }
@@ -202,7 +207,8 @@ async function renderPayload(payload, generation) {
   if (!currentRender(generation)) return;
   const messages = await loadConversation(payload);
   if (!currentRender(generation)) return;
-  panel.innerHTML = `<div class="panel-content"><h1>${esc(payload.title || 'LeafReader')}</h1>${payload.quote ? `<div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote>` : ''}${resultContent(payload, messages)}</div>${conversationKey(payload) ? followUpMarkup() : ''}`;
+  setPanelTitle(payload.title || 'LeafReader');
+  panel.innerHTML = `<div class="panel-content">${payload.quote ? `<div class="label">SELECTED TEXT</div><blockquote>${esc(payload.quote)}</blockquote>` : ''}${resultContent(payload, messages)}</div>${conversationKey(payload) ? followUpMarkup() : ''}`;
   if (conversationKey(payload)) bindFollowUp(payload, messages, generation);
 }
 async function render(payload) {
@@ -214,10 +220,11 @@ async function renderHistory() {
   const { aiConversations = {} } = await chrome.storage.local.get('aiConversations');
   if (!currentRender(generation)) return;
   const entries = Object.entries(aiConversations).sort(([, left], [, right]) => (right.updatedAt || 0) - (left.updatedAt || 0));
-  panel.innerHTML = entries.length ? `<div class="panel-content"><h1>AI conversations</h1><div class="conversation-list">${entries.map(([key, conversation]) => `<button data-conversation="${esc(key)}"><strong>${esc(conversation.documentTitle || 'Webpage')}</strong><span>${esc(conversation.quote || conversation.messages?.at(-1)?.content || '').slice(0, 105)}</span><small>${new Date(conversation.updatedAt || 0).toLocaleString()}</small></button>`).join('')}</div></div>` : `<div class="panel-content"><div class="empty"><b>☘</b><h1>No conversations yet</h1><p>Use Translate, Dictionary, or AI on a webpage, then continue the conversation here.</p></div></div>`;
+  setPanelTitle('AI conversations');
+  panel.innerHTML = entries.length ? `<div class="panel-content"><div class="conversation-list">${entries.map(([key, conversation]) => `<button data-conversation="${esc(key)}"><strong>${esc(conversation.documentTitle || 'Webpage')}</strong><span>${esc(conversation.quote || conversation.messages?.at(-1)?.content || '').slice(0, 105)}</span><small>${new Date(conversation.updatedAt || 0).toLocaleString()}</small></button>`).join('')}</div></div>` : `<div class="panel-content"><div class="empty"><b>☘</b><p>No conversations yet. Use Translate, Dictionary, or AI on a webpage, then continue the conversation here.</p></div></div>`;
   panel.querySelectorAll('[data-conversation]').forEach((button) => button.onclick = () => { const key = button.dataset.conversation; const conversation = aiConversations[key]; if (!conversation) return; const latest = conversation.messages?.filter((message) => message.role === 'assistant').at(-1)?.content || ''; void render({ title:'LeafReader AI', body:latest, documentId:conversation.documentId, documentTitle:conversation.documentTitle, quote:conversation.quote, context:conversation.context, presentation:conversation.presentation, conversationId:key.replace(/^conversation:/, '') }); });
 }
-function renderEmpty(generation = renderGeneration) { if (currentRender(generation)) panel.innerHTML = `<div class="panel-content"><div class="empty"><b>☘</b><h1>Ready to read</h1><p>Select text on the webpage to translate, look up, annotate, or ask AI.</p></div></div>`; }
+function renderEmpty(generation = renderGeneration) { if (currentRender(generation)) { setPanelTitle('Ready to read'); panel.innerHTML = `<div class="panel-content"><div class="empty"><b>☘</b><p>Select text on the webpage to translate, look up, annotate, or ask AI.</p></div></div>`; } }
 async function renderActivePageThread() {
   const generation = ++renderGeneration;
   const [tab] = await chrome.tabs.query({ active:true, currentWindow:true });

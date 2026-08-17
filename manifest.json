@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LeafReader Chrome",
-  "version": "1.0.44",
+  "version": "1.0.45",
   "description": "A focused reader with notes, vocabulary, read-aloud, and optional AI help.",
   "icons": {
     "16": "icons/leafreader-16.png",
@@ -26,7 +26,7 @@
   "content_scripts": [{
     "matches": ["http://*/*", "https://*/*"],
     "css": ["content.css"],
-    "js": ["tts-core.js", "anchor-core.js", "content.js"],
+    "js": ["tts-core.js", "anchor-core.js", "translation-core.js", "content.js"],
     "run_at": "document_end"
   }],
   "commands": {

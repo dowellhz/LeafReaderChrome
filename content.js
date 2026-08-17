@@ -1,5 +1,6 @@
 (() => {
   const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const cleanSelection = LeafTranslation.normalizeSelectionText;
   const preferredTtsLanguage = LeafTts.preferredLanguage;
   const lemmaFor = (value) => {
     const word = clean(value).toLocaleLowerCase().replace(/^[^\p{L}]+|[^\p{L}'-]+$/gu, '');
@@ -156,7 +157,7 @@
   const saveDefinition = async (word, definition) => localStorageCall(() => mutateStorage({ operation:'patchVocabularyByLemma', lemma:lemmaFor(word), changes:{ definition } }));
   const createRecord = (kind, extras = {}) => ({ id: `${kind}:${crypto.randomUUID()}`, documentId, documentTitle, quote: selectedText, context: selectedContext, anchor: createAnchor(selectedRange), kind, createdAt: Date.now(), updatedAt: Date.now(), favorite: false, ...extras });
   const showToolbar = () => {
-    const selection = window.getSelection(); const text = clean(selection?.toString());
+    const selection = window.getSelection(); const text = cleanSelection(selection?.toString());
     if (!text || selection.rangeCount === 0 || text.length > 2500 || selection.anchorNode?.parentElement?.closest?.('input,textarea,[contenteditable="true"]')) { toolbar.hidden = true; return; }
     const range = selection.getRangeAt(0); if (!document.body.contains(range.commonAncestorContainer)) return;
     selectedText = text; selectedRange = range.cloneRange(); selectedContext = clean(range.commonAncestorContainer.parentElement?.closest('p,li,blockquote,article,main,div')?.innerText || '').slice(0, 500);
@@ -173,8 +174,8 @@
   shadow.querySelector('[data-close]').onclick = () => side.hidden = true;
   shadow.querySelector('[data-open-reader]').onclick = () => sendToExtension({ type: 'OPEN_READER' });
 
-  const askAI = async (instruction) => {
-    const result = await sendToExtension({ type: 'AI_REQUEST', instruction, text: selectedText, context: selectedContext });
+  const askAI = async (instruction, text = selectedText) => {
+    const result = await sendToExtension({ type: 'AI_REQUEST', instruction, text, context: selectedContext });
     if (!result?.ok) throw new Error(result?.error || 'Extension background returned no response.');
     return result.content;
   };
@@ -236,7 +237,7 @@
       clearSelection(); return;
     }
     const conversationId = crypto.randomUUID(); const kind = action === 'translate' ? 'translation' : 'explanation'; const marker = await saveSelectionMarker(kind, { conversationId, presentation:'chat' }); addVisualHighlight(marker);
-    const title=action === 'translate' ? 'Translation' : 'AI explanation';display(title,'Thinking…',selectedText,{ conversationId });try { const instruction=action === 'translate' ? 'Translate every sentence in the selected text completely and in order. Do not summarize, omit, or explain only selected keywords. Preserve paragraph breaks. Return only the translation unless a brief clarification is essential.' : 'Explain the meaning in context, useful vocabulary or grammar, and the author’s likely intent.';display(title,await askAI(instruction),selectedText,{ conversationId });} catch(error) {display(title,`Could not reach the AI provider: ${error.message}`,selectedText,{ conversationId });}clearSelection();
+    const title=action === 'translate' ? 'Translation' : 'AI explanation';display(title,'Thinking…',selectedText,{ conversationId });try { let answer; if (action === 'translate') { const prepared=LeafTranslation.prepareParagraphTranslation(selectedText); const instruction=prepared.count > 1 ? `Translate every sentence in the selected text completely and in order. The input has ${prepared.count} paragraphs labeled [[P1]] through [[P${prepared.count}]]. Keep every label unchanged and in the same order, translate each paragraph separately, and put one blank line between labeled paragraphs. Do not merge, summarize, omit, or add commentary.` : 'Translate every sentence in the selected text completely and in order. Do not summarize, omit, or add commentary. Return only the translation.'; answer=LeafTranslation.restoreParagraphTranslation(await askAI(instruction,prepared.text),prepared.count); } else answer=await askAI('Explain the meaning in context, useful vocabulary or grammar, and the author’s likely intent.'); display(title,answer,selectedText,{ conversationId });} catch(error) {display(title,`Could not reach the AI provider: ${error.message}`,selectedText,{ conversationId });}clearSelection();
   }
   const startToolbarAction = async (action) => {
     if (!action) return;
