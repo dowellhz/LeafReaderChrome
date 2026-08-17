@@ -9,7 +9,7 @@ A Manifest V3 Chrome extension inspired by Leaf Reader’s focused reading workf
 - Local library with reading progress
 - Text search, typography controls, light/dark themes, and sentence-by-sentence browser read-aloud
 - Persistent webpage highlights/notes with refresh recovery, Markdown/JSON export, and backup/restore
-- Personal vocabulary with lemma grouping, review scheduling, and dictionary lookup
+- Personal vocabulary with lemma grouping, review scheduling, and offline lookup from LeafReader's trimmed ECDICT index
 - Optional multi-provider AI for translation, explanations, source-aware webpage Q&A, and exportable follow-up conversations
 
 ## Install locally
@@ -28,3 +28,6 @@ The shared TTS language, chunking, voice-selection, normalization, and playback-
 ```sh
 npm test
 ```
+
+For release verification, run `npm run verify`. See `PRIVACY.md`,
+`CHROME_WEB_STORE_LISTING.md`, and `RELEASE_CHECKLIST.md` for store materials.

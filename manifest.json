@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LeafReader Chrome",
-  "version": "1.0.56",
+  "version": "1.0.58",
   "description": "A focused reader with notes, vocabulary, read-aloud, and optional AI help.",
   "icons": {
     "16": "icons/leafreader-16.png",
@@ -9,7 +9,7 @@
     "48": "icons/leafreader-48.png",
     "128": "icons/leafreader-128.png"
   },
-  "permissions": ["storage", "activeTab", "scripting", "tabs", "sidePanel"],
+  "permissions": ["storage", "unlimitedStorage", "activeTab", "scripting", "tabs", "sidePanel"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": {
@@ -25,7 +25,7 @@
   "content_scripts": [{
     "matches": ["http://*/*", "https://*/*"],
     "css": ["content.css"],
-    "js": ["tts-core.js", "anchor-core.js", "translation-core.js", "content.js"],
+    "js": ["tts-core.js", "anchor-core.js", "translation-core.js", "offline-dictionary.js", "content.js"],
     "run_at": "document_start"
   }],
   "commands": {

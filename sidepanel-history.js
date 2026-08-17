@@ -6,6 +6,7 @@
   const entryTitle = (kind, presentation) => ({
     translation:'Translation',
     dictionary:'单词释义',
+    analysis:'难句分析',
     explanation:'讲解',
     note:'Note',
     highlight:'Highlight'

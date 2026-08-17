@@ -19,6 +19,7 @@ let ttsPaused = false;
 let availableVoices = [];
 let activeTtsHighlight = null;
 let activeSources = [];
+let activeSearchIndex = null;
 let ttsForDocument = false;
 let ttsGeneration = 0;
 let ttsPreferences = { voices: {}, rate: 1, pitch: 1, localOnly: true };
@@ -60,7 +61,7 @@ const escapeHtml = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&':'&am
 const cleanText = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 const makeId = (kind) => `${kind}:${crypto.randomUUID()}`;
 const relativeDate = (ms) => { const days = Math.floor((Date.now() - ms) / 86400000); return !days ? 'Today' : days === 1 ? 'Yesterday' : `${days} days ago`; };
-const annotationLabel = (kind) => ({ highlight: 'Highlight', note: 'Note', translation: 'Translation', dictionary: '单词释义', explanation: '讲解' }[kind] || 'Highlight');
+const annotationLabel = (kind) => ({ highlight: 'Highlight', note: 'Note', translation: 'Translation', dictionary: '单词释义', analysis: '难句分析', explanation: '讲解' }[kind] || 'Highlight');
 const lemmaFor = (value) => {
   const word = cleanText(value).toLocaleLowerCase().replace(/^[^\p{L}]+|[^\p{L}'-]+$/gu, '');
   if (!/^[a-z][a-z'-]*$/i.test(word)) return word;
@@ -215,6 +216,7 @@ async function openDocument(id) {
   $('#article').style.setProperty('--leading', localStorage.getItem('leaf-leading') || 1.8);
   $('#fontSize').value = localStorage.getItem('leaf-font-size') || 18; $('#textWidth').value = localStorage.getItem('leaf-text-width') || 720; $('#lineHeight').value = localStorage.getItem('leaf-leading') || 1.8;
   $('#article').innerHTML = sanitizeHtml(doc.html || `<p>${escapeHtml(doc.text)}</p>`);
+  activeSearchIndex = LeafSearch.build(doc.text || $('#article').innerText);
   readerTextIndex = null;
   populateVoices();
   restoreAnnotations();
@@ -272,7 +274,7 @@ function readerRangeForRecord(record) {
 }
 function paintReaderRange(record, range) {
   if (!range || !window.CSS?.highlights || !window.Highlight) return;
-  const name = ({ note:'leafreader-reader-note', word:'leafreader-reader-word', translation:'leafreader-reader-translation', dictionary:'leafreader-reader-dictionary', explanation:'leafreader-reader-explanation' }[record.kind] || 'leafreader-reader-highlight');
+  const name = ({ note:'leafreader-reader-note', word:'leafreader-reader-word', translation:'leafreader-reader-translation', dictionary:'leafreader-reader-dictionary', analysis:'leafreader-reader-analysis', explanation:'leafreader-reader-explanation' }[record.kind] || 'leafreader-reader-highlight');
   const highlight = readerHighlightSets.get(name) || new Highlight();
   highlight.add(range);
   readerHighlightSets.set(name, highlight);
@@ -308,6 +310,8 @@ $('#noteDialog').addEventListener('close', async () => { const note = pendingNot
 async function lookupWord(word) {
   openAssistant('Dictionary');
   try {
+    const offline = await LeafDictionary.lookup(word);
+    if (offline) { const definition = LeafDictionary.markdown(offline); setAssistantResult(definition); const item = vocabulary.find((candidate) => candidate.lemma === lemmaFor(word)); if (item) acceptRecords('vocabulary', await mutateStorage({ operation:'patchRecord', key:'vocabulary', id:item.id, changes:{ definition } })); return; }
     const explanation = await askAI('Explain this English word or short phrase for a Chinese learner. Use concise Markdown with: ## 发音, a contextual Chinese meaning, ## 常见用法 with natural examples, and ## 词性.', word, activeDocument?.text?.slice(0, 500) || '');
     setAssistantResult(explanation);
     const item = vocabulary.find((candidate) => candidate.lemma === lemmaFor(word));
@@ -322,25 +326,19 @@ async function askAI(instruction, text, context = '') {
   if (!result?.ok) throw new Error(result?.error || 'Extension background returned no response.');
   return result.content;
 }
-function documentChunks(text, size = 1500) {
-  const paragraphs = String(text || '').split(/\n{2,}/).map(cleanText).filter(Boolean); const units = [];
-  for (const paragraph of paragraphs) { if (paragraph.length <= size) units.push(paragraph); else { let rest = paragraph; while (rest.length > size) { const window = rest.slice(0, size + 1); const boundary = Math.max(window.lastIndexOf('。'), window.lastIndexOf('！'), window.lastIndexOf('？'), window.lastIndexOf('. '), window.lastIndexOf('! '), window.lastIndexOf('? '), window.lastIndexOf(' ')); const cut = boundary > size * .45 ? boundary + 1 : size; units.push(rest.slice(0, cut).trim()); rest = rest.slice(cut).trim(); } if (rest) units.push(rest); } }
-  const chunks = []; let current = '';
-  for (const paragraph of units) { if (current && current.length + paragraph.length + 2 > size) { chunks.push(current); current = ''; } current += `${current ? '\n\n' : ''}${paragraph}`; }
-  if (current) chunks.push(current); return chunks;
-}
 function retrievalContext(question) {
-  const chunks = documentChunks(activeDocument?.text || $('#article').innerText); const tokens = cleanText(question).toLocaleLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || [];
-  const scored = chunks.map((chunk, index) => ({ chunk, index, score:tokens.reduce((score, token) => score + (chunk.toLocaleLowerCase().match(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length, 0) })).sort((a, b) => b.score - a.score || a.index - b.index);
-  const selected = (scored.some((item) => item.score) ? scored.slice(0, 5) : scored.slice(0, 6));
-  activeSources = selected.map((item) => item.chunk); return selected.map((item, source) => `[S${source + 1}] ${item.chunk}`).join('\n\n');
+  const index = activeSearchIndex || LeafSearch.build(activeDocument?.text || $('#article').innerText);
+  const selected = LeafSearch.search(index, question, 6);
+  activeSources = selected.map((item) => item.text);
+  const coverage = selected.length ? Math.round(selected.reduce((sum, item) => sum + item.coverage, 0) / selected.length * 100) : 0;
+  return `检索到 ${selected.length} 段相关内容，平均词项覆盖率 ${coverage}%。\n\n${selected.map((item, source) => `[S${source + 1}] ${item.text}`).join('\n\n')}`;
 }
 async function askAboutDocument(question) {
   const sources = retrievalContext(question); return askAI(`${question}\n\nAnswer only from the supplied source excerpts. Cite every substantive claim as [S1], [S2], etc. If the sources do not support an answer, say so.`, '', sources);
 }
 async function aiAction(action) {
-  if (!selected) return; const title = action === 'translate' ? 'Translation' : '讲解'; openAssistant(title);
-  try { setAssistantResult(await askAI(action === 'translate' ? 'Translate naturally. Output the translation first, then only brief notes if needed.' : 'Explain this word, phrase, or passage: its meaning in context, important usage, and any grammar worth noticing.', selected.text, selected.context)); } catch(error) { setAssistantResult(`Could not reach the AI provider: ${error.message}`, false); } clearSelection();
+  if (!selected) return; const title = action === 'translate' ? 'Translation' : action === 'sentence' ? '难句分析' : '讲解'; openAssistant(title);
+  try { setAssistantResult(await askAI(action === 'translate' ? 'Translate naturally. Output the translation first, then only brief notes if needed.' : action === 'sentence' ? 'Analyze this difficult sentence for a Chinese learner. Use concise Markdown sections: ## 句子骨架, ## 从句与修饰关系, ## 难点, and ## 分层翻译.' : 'Explain this word, phrase, or passage: its meaning in context, important usage, and any grammar worth noticing.', selected.text, selected.context)); } catch(error) { setAssistantResult(`Could not reach the AI provider: ${error.message}`, false); } clearSelection();
 }
 function voiceForLanguage(language) {
   return LeafTts.selectVoice(availableVoices, language, ttsPreferences.voices?.[ttsLanguageKey(language)], ttsPreferences.localOnly);
@@ -475,7 +473,7 @@ function bind() {
   $('#ttsPitch').value = ttsPreferences.pitch; $('#ttsPitch').oninput = (event) => { ttsPreferences = { ...ttsPreferences, pitch:Number(event.target.value) }; void chrome.storage.local.set({ ttsPreferences }); };
   $('#aiSummary').onclick=async()=>{ if(!activeDocument)return; openAssistant('Reading summary'); try { setAssistantResult(await askAboutDocument('Summarize this reading in 3–5 concise key points, then list important people, events, or ideas and one reading note.')); } catch(error) { setAssistantResult(`Could not reach the AI provider: ${error.message}`, false); } };
   $('#selectionToolbar').onmousedown = (event) => event.preventDefault();
-  $('#selectionToolbar').onclick=(event)=>{const action=event.target.closest('button')?.dataset.action;if(!action)return;if(action==='note')openNote();if(action==='word')addWord();if(action==='translate'||action==='explain')aiAction(action);if(action==='speak')speak();};
+  $('#selectionToolbar').onclick=(event)=>{const action=event.target.closest('button')?.dataset.action;if(!action)return;if(action==='note')openNote();if(action==='word')addWord();if(action==='translate'||action==='sentence'||action==='explain')aiAction(action);if(action==='speak')speak();};
   $('#closeAssistant').onclick=()=>$('#assistantPanel').hidden=true; $('#followUpForm').onsubmit=async(event)=>{event.preventDefault();const question=$('#followUp').value.trim();if(!question)return;openAssistant('LeafReader AI');try{setAssistantResult(await askAboutDocument(question));}catch(error){setAssistantResult(`Could not reach the AI provider: ${error.message}`, false);}$('#followUp').value='';};
   $('#article').onclick=(event)=>{ if (!getSelection()?.isCollapsed) return; const point=document.caretRangeFromPoint?.(event.clientX,event.clientY)||(()=>{const position=document.caretPositionFromPoint?.(event.clientX,event.clientY);if(!position)return null;const range=document.createRange();range.setStart(position.offsetNode,position.offset);range.collapse(true);return range;})();if(!point)return;const hit=[...readerPaintedRanges].reverse().find(({range})=>{try{return range.isPointInRange(point.startContainer,point.startOffset);}catch(_){return false;}});const item=hit?.record;if(item?.note)showToast(item.note);else if(item?.definition){openAssistant('单词释义');setAssistantResult(item.definition);$('#assistantPanel').hidden=false;}};
   }

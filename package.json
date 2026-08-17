@@ -1,5 +1,7 @@
 {
   "scripts": {
-    "test": "node --test tests/*.test.js"
+    "check": "node --check background.js && node --check content.js && node --check sidepanel.js && node --check reader.js && node --check options.js && node --check search-core.js && node --check offline-dictionary.js && node -e \"JSON.parse(require('fs').readFileSync('manifest.json','utf8'))\"",
+    "test": "node --test tests/*.test.js",
+    "verify": "npm run check && npm test"
   }
 }
