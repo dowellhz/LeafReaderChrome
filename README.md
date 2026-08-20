@@ -12,6 +12,10 @@ A Manifest V3 Chrome extension inspired by Leaf Reader’s focused reading workf
 - Personal vocabulary with lemma grouping, review scheduling, and offline lookup from LeafReader's trimmed ECDICT index
 - Optional multi-provider AI for translation, explanations, source-aware webpage Q&A, and exportable follow-up conversations
 
+## Official download
+
+Install LeafReader Chrome from the [Chrome Web Store](https://chromewebstore.google.com/detail/leafreader-chrome/knjjeeepkmbplikgfehoachfpfihlgca?authuser=0&hl=zh-CN).
+
 ## Install locally
 
 1. Open `chrome://extensions`.
